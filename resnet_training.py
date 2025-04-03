@@ -16,6 +16,7 @@ class Config:
     is_dry_run: bool = False
     num_epochs: int = 10
     do_log_models: bool = True
+    device: torch.device = torch.device("cpu")
 
 
 def get_cifar100_dataloader(is_train: bool, batch_size: int, use_every_nth: int | None = None):
@@ -40,7 +41,7 @@ class ResNetTraining:
     def __init__(self, config: Config, wandb_run: (wandb.wandb_run.Run | None) = None):
         torch.manual_seed(42)
         self.run = wandb_run
-        self.model = get_resnet_for_cifar100()
+        self.model = get_resnet_for_cifar100().to(config.device)
         self.config = config
         self.curr_ep = 0
         self.train_dataloader = get_cifar100_dataloader(
@@ -56,6 +57,7 @@ class ResNetTraining:
 
         losses = torch.zeros(len(self.train_dataloader))
         for idx, (x, y) in enumerate(self.train_dataloader):
+            x, y = x.to(self.config.device), y.to(self.config.device)
             self.optimizer.zero_grad()
 
             y_hat = self.model(x)
@@ -77,6 +79,8 @@ class ResNetTraining:
         total_preds = 0
 
         for idx, (x, y) in enumerate(self.val_dataloader):
+            x, y = x.to(self.config.device), y.to(self.config.device)
+
             y_hat = self.model(x)
             loss = self.criterion(y_hat, y)
             losses[idx] = loss
@@ -85,7 +89,7 @@ class ResNetTraining:
             correct_preds += (predicted == y).sum().item()
             total_preds += y.shape[0]
 
-        self.log({"val/accuracy": correct_preds / total_preds})
+        self.log({"val/accuracy": correct_preds / total_preds}, self.curr_ep)
         self.log({"val/loss": losses.mean().item()}, self.curr_ep)
         if self.config.do_log_models:
             self.log_model()
@@ -116,9 +120,13 @@ class ResNetTraining:
 
 if __name__ == "__main__":
     config = Config(
-        num_epochs=20
+        num_epochs=20,
+        device=torch.device(
+            "mps") if torch.mps.is_available() else torch.device("cpu"),
+        is_dry_run=True,
+        do_log_models=False
     )
 
-    with wandb.init(project="thesis_baseline", config=asdict(config)) as run:
+    with wandb.init(project="thesis_baseline_dryruns", config=asdict(config)) as run:
         training = ResNetTraining(config, run)
         training.run_training()
