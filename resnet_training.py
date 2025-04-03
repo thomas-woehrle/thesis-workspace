@@ -29,11 +29,18 @@ def get_cifar100_dataloader(is_train: bool, batch_size: int, use_every_nth: int 
     return dataloader
 
 
+def get_resnet_for_cifar100() -> nn.Module:
+    # make other versions than resnet18 available in the future
+    model = torchvision.models.resnet18()
+    model.fc = nn.Linear(512, 100)
+    return model
+
+
 class ResNetTraining:
     def __init__(self, config: Config, wandb_run: (wandb.wandb_run.Run | None) = None):
         torch.manual_seed(42)
         self.run = wandb_run
-        self.model = torchvision.models.resnet18()
+        self.model = get_resnet_for_cifar100()
         self.config = config
         self.curr_ep = 0
         self.train_dataloader = get_cifar100_dataloader(
@@ -66,11 +73,19 @@ class ResNetTraining:
         self.model.eval()
 
         losses = torch.zeros(len(self.val_dataloader))
+        correct_preds = 0
+        total_preds = 0
+
         for idx, (x, y) in enumerate(self.val_dataloader):
             y_hat = self.model(x)
             loss = self.criterion(y_hat, y)
             losses[idx] = loss
 
+            predicted = y_hat.argmax(dim=-1)
+            correct_preds += (predicted == y).sum().item()
+            total_preds += y.shape[0]
+
+        self.log({"val/accuracy": correct_preds / total_preds})
         self.log({"val/loss": losses.mean().item()}, self.curr_ep)
         if self.config.do_log_models:
             self.log_model()
@@ -86,7 +101,7 @@ class ResNetTraining:
         if self.run:
             self.run.log(data, step, commit)
         else:
-            raise NotImplementedError()
+            print(f"Step {step}: {data}")
 
     def log_model(self, name: (str | None) = None, aliases: (list[str] | None) = None):
         """Effectively mirrors wandb run.log_model API"""
@@ -101,9 +116,9 @@ class ResNetTraining:
 
 if __name__ == "__main__":
     config = Config(
-        is_dry_run=True
+        num_epochs=20
     )
 
-    with wandb.init(project="thesis_baseline", group="dry_runs", config=asdict(config)) as run:
+    with wandb.init(project="thesis_baseline", config=asdict(config)) as run:
         training = ResNetTraining(config, run)
         training.run_training()
