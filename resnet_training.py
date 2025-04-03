@@ -1,4 +1,5 @@
 from dataclasses import asdict, dataclass
+import os
 from typing import Any
 
 import torch
@@ -14,6 +15,7 @@ import wandb.wandb_run
 class Config:
     is_dry_run: bool = False
     num_epochs: int = 10
+    do_log_models: bool = True
 
 
 def get_cifar100_dataloader(is_train: bool, batch_size: int, use_every_nth: int | None = None):
@@ -32,7 +34,7 @@ class ResNetTraining:
         torch.manual_seed(42)
         self.run = wandb_run
         self.model = torchvision.models.resnet18()
-        self.num_epochs = config.num_epochs
+        self.config = config
         self.curr_ep = 0
         self.train_dataloader = get_cifar100_dataloader(
             is_train=True, batch_size=16, use_every_nth=1000 if config.is_dry_run else None)
@@ -70,9 +72,11 @@ class ResNetTraining:
             losses[idx] = loss
 
         self.log({"val/loss": losses.mean().item()}, self.curr_ep)
+        if self.config.do_log_models:
+            self.log_model()
 
     def run_training(self):
-        for ep in range(self.num_epochs):
+        for ep in range(self.config.num_epochs):
             self.curr_ep = ep
             self.train()
             self.validate()
@@ -81,6 +85,16 @@ class ResNetTraining:
         """Effectively mirrors wandb run.log API, see https://docs.wandb.ai/ref/python/run/#log"""
         if self.run:
             self.run.log(data, step, commit)
+        else:
+            raise NotImplementedError()
+
+    def log_model(self, name: (str | None) = None, aliases: (list[str] | None) = None):
+        """Effectively mirrors wandb run.log_model API"""
+        path = "./temp_model"
+        torch.save(self.model.state_dict(), path)
+        if self.run:
+            self.run.log_model(path, name, aliases)
+            os.remove(path)
         else:
             raise NotImplementedError()
 
