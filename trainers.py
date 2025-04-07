@@ -12,7 +12,6 @@ import loggers
 @dataclass
 class NormalTrainerConfig:
     device: torch.device
-    num_epochs: int
 
 
 class NormalTrainer:
