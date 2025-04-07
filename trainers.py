@@ -40,6 +40,7 @@ class NormalTrainer:
 
     def train_epoch(self, epoch: int):
         self.model.train()
+        self.model.to(self.config.device)
 
         losses = torch.zeros(len(self.dataloader))
         for batch_idx, batch in enumerate(tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")):

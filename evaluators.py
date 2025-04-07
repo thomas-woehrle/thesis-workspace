@@ -39,6 +39,7 @@ class Evaluator1:
     def evaluate_epoch(self, epoch: int):
         """Validate the current model"""
         self.model.eval()
+        self.model.to(self.config.device)
 
         losses = torch.zeros(len(self.dataloader))
         correct_preds = torch.zeros(len(self.dataloader))

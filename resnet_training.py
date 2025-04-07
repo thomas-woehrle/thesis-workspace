@@ -10,6 +10,7 @@ import wandb.wandb_run
 
 import evaluators
 import loggers
+import resnet
 import trainers
 
 
@@ -22,13 +23,6 @@ def get_cifar100_dataloader(is_train: bool, batch_size: int, use_every_nth: int 
 
     dataloader = DataLoader(dataset, batch_size, shuffle=is_train)
     return dataloader
-
-
-def get_resnet_for_cifar100() -> nn.Module:
-    # make other versions than resnet18 available in the future
-    model = torchvision.models.resnet18()
-    model.fc = nn.Linear(512, 100)
-    return model
 
 
 @dataclass
@@ -50,7 +44,7 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
         batch_size=training_config.batch_size,
         use_every_nth=1000 if training_config.do_use_data_subset else None)
 
-    model = get_resnet_for_cifar100()
+    model = resnet.resnet20()
     logger = loggers.Logger(wandb_run)
 
     trainer = trainers.NormalTrainer(
@@ -64,7 +58,7 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
 
 
 if __name__ == "__main__":
-    device = torch.device("cpu")
+    device = torch.device("mps")
     is_test_run = True
 
     trainer_config = trainers.NormalTrainerConfig(
