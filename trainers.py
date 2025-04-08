@@ -39,6 +39,8 @@ def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimi
         return optim.SGD(model.parameters(), lr=optimizer_config.lr, momentum=optimizer_config.momentum, weight_decay=optimizer_config.weight_decay)
     elif optimizer_config.optimizer_name == "adam":
         return optim.Adam(model.parameters(), lr=optimizer_config.lr, weight_decay=optimizer_config.weight_decay)
+    elif optimizer_config.optimizer_name == "adamw":
+        return optim.AdamW(model.parameters(), lr=optimizer_config.lr, weight_decay=optimizer_config.weight_decay)
     else:
         raise ValueError(
             f"Optimizer {optimizer_config.optimizer_name} is not supported")
