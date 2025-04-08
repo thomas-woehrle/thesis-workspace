@@ -1,6 +1,9 @@
+import os
+import random
 from dataclasses import asdict, dataclass
 from typing import Optional
 
+import numpy as np
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -12,6 +15,7 @@ import evaluators
 import loggers
 import resnet_cifar
 import trainers
+
 
 # Mean and standard deviation for CIFAR-100 (precomputed)
 CIFAR100_MEAN = (0.5071, 0.4865, 0.4409)
@@ -57,9 +61,22 @@ class TrainingConfig:
     num_workers: int = 0
     use_data_subset: bool = False
     is_cifar10: bool = False
+    seed: Optional[int] = None
+
+
+def seed_everything(seed: int):
+    """Seeds everything. Cuda seeding and benchmarking configuration excluded for now."""
+    random.seed(seed)
+    # Set PYTHONHASHSEED environment variable at a fixed value
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wandb_run.Run]):
+    if training_config.seed is not None:
+        seed_everything(training_config.seed)
+
     train_dataloader = get_cifar_dataloader(
         is_train=True,
         batch_size=training_config.batch_size,
@@ -90,16 +107,17 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
 
 
 if __name__ == "__main__":
-    device = torch.device("mps")
-    is_test_run = False
+    device = torch.device("cpu")
+    is_test_run = True
     is_cifar10 = False
-    num_epochs = 30
+    num_epochs = 10
+    seed: Optional[int] = None
 
     trainer_config = trainers.NormalTrainerConfig(
         device=device,
         optimizer_config=trainers.OptimizerConfig(
             optimizer_name="sgd",
-            lr=0.1,
+            lr=0.01 if is_test_run else 0.1,
             weight_decay=1e-4,
             momentum=0.9
         ),
@@ -122,7 +140,8 @@ if __name__ == "__main__":
         use_img_transforms=True,
         use_data_subset=True if is_test_run else False,
         is_cifar10=is_cifar10,
-        num_workers=0 if is_test_run else 4
+        num_workers=0 if is_test_run else 4,
+        seed=seed
     )
 
     project = "thesis_baseline_testruns" if is_test_run else "thesis_baseline"
