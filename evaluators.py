@@ -36,6 +36,7 @@ class Evaluator1:
 
         return loss, correct_preds, total_preds
 
+    @torch.no_grad()
     def evaluate_epoch(self, epoch: int):
         """Validate the current model"""
         self.model.eval()
@@ -52,7 +53,8 @@ class Evaluator1:
             correct_preds[batch_idx] = batch_correct_preds
             total_preds[batch_idx] = batch_total_preds
 
-        self.logger.log({"val/accuracy": correct_preds / total_preds}, epoch)
+        self.logger.log(
+            {"val/accuracy": correct_preds.sum().item() / total_preds.sum().item()}, epoch)
         self.logger.log({"val/loss": losses.mean().item()}, epoch)
         if self.config.do_log_models:
             self.logger.log_model(self.model)
