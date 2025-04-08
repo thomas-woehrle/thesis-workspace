@@ -14,6 +14,13 @@ class Evaluator1Config:
     do_log_models: bool
 
 
+def get_num_topk_correct_preds(batch_logits: torch.Tensor, batch_target: torch.Tensor, topk: int):
+    _, batch_topk_indices = torch.topk(batch_logits, topk, dim=-1)
+    batch_topk_pred_correct = (
+        batch_topk_indices == batch_target.unsqueeze(-1)).sum(dim=-1) > 0
+    return batch_topk_pred_correct.sum(dim=-1)
+
+
 class Evaluator1:
     def __init__(self, model: nn.Module, dataloader: DataLoader, config: Evaluator1Config, logger: loggers.Logger):
         self.model = model
@@ -30,11 +37,12 @@ class Evaluator1:
         y_hat = self.model(x)
         loss = self.criterion(y_hat, y)
 
-        predicted = y_hat.argmax(dim=-1)
-        correct_preds = (predicted == y).sum().item()
+        # For accuracy statistics
         total_preds = y.shape[0]
+        top1_correct_preds = get_num_topk_correct_preds(y_hat, y, 1)
+        top5_correct_preds = get_num_topk_correct_preds(y_hat, y, 5)
 
-        return loss, correct_preds, total_preds
+        return loss, total_preds, top1_correct_preds, top5_correct_preds
 
     @torch.no_grad()
     def evaluate_epoch(self, epoch: int):
@@ -43,18 +51,22 @@ class Evaluator1:
         self.model.to(self.config.device)
 
         losses = torch.zeros(len(self.dataloader))
-        correct_preds = torch.zeros(len(self.dataloader))
         total_preds = torch.zeros(len(self.dataloader))
+        top1_correct_preds = torch.zeros(len(self.dataloader))
+        top5_correct_preds = torch.zeros(len(self.dataloader))
 
         for batch_idx, batch in enumerate(tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Validation")):
-            batch_loss, batch_correct_preds, batch_total_preds = self.evaluate_batch(
+            batch_loss, batch_total_preds, batch_top1_correct_preds, batch_top5_correct_preds = self.evaluate_batch(
                 batch, batch_idx)
             losses[batch_idx] = batch_loss
-            correct_preds[batch_idx] = batch_correct_preds
             total_preds[batch_idx] = batch_total_preds
+            top1_correct_preds[batch_idx] = batch_top1_correct_preds
+            top5_correct_preds[batch_idx] = batch_top5_correct_preds
 
         self.logger.log(
-            {"val/accuracy": correct_preds.sum().item() / total_preds.sum().item()}, epoch)
+            {"val/top1_accuracy": top1_correct_preds.sum().item() / total_preds.sum().item()}, epoch)
+        self.logger.log(
+            {"val/top5_accuracy": top5_correct_preds.sum().item() / total_preds.sum().item()}, epoch)
         self.logger.log({"val/loss": losses.mean().item()}, epoch)
         if self.config.do_log_models:
             self.logger.log_model(self.model)
