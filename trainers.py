@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,27 @@ from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
 import loggers
+
+
+@dataclass
+class TrainerConfig:
+    device: torch.device
+
+
+class Trainer[ConfigType: TrainerConfig](ABC):
+    def __init__(self, model: nn.Module, dataloader: DataLoader, config: ConfigType, logger: loggers.Logger):
+        self.model = model
+        self.dataloader = dataloader
+        self.config = config
+        self.logger = logger
+
+    @abstractmethod
+    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def train_epoch(self, epoch: int):
+        raise NotImplementedError
 
 
 @dataclass
@@ -28,7 +50,7 @@ class LRSchedulerConfig:
 
 
 @dataclass
-class NormalTrainerConfig:
+class NormalTrainerConfig(TrainerConfig):
     device: torch.device
     optimizer_config: OptimizerConfig
     lr_scheduler_config: LRSchedulerConfig
@@ -55,17 +77,13 @@ def get_lr_scheduler(optimizer: Optimizer, scheduler_config: LRSchedulerConfig) 
         return None
 
 
-class NormalTrainer:
+class NormalTrainer(Trainer[NormalTrainerConfig]):
     def __init__(self, model: nn.Module, dataloader: DataLoader, config: NormalTrainerConfig, logger: loggers.Logger):
-        self.model = model
-        self.dataloader = dataloader
+        super().__init__(model, dataloader, config, logger)
         self.optimizer = get_optimizer(model, config.optimizer_config)
         self.lr_scheduler = get_lr_scheduler(
             self.optimizer, config.lr_scheduler_config)
         self.criterion = nn.CrossEntropyLoss()
-
-        self.config = config
-        self.logger = logger
 
     def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         x, y = batch
@@ -95,3 +113,19 @@ class NormalTrainer:
             self.logger.log(
                 {"debug/lr": self.lr_scheduler.get_last_lr()[0]}, epoch)
             self.lr_scheduler.step()
+
+
+class RandomEvolutionStrategy:
+    pass
+
+
+class EvolutionaryTrainerConfig(TrainerConfig):
+    popsize: int
+
+
+class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
+    def __init__(self, model: nn.Module, popsize: int, lr: float):
+        pass
+
+    def train_epoch(self, epoch: int):
+        pass
