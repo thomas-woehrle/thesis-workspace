@@ -32,12 +32,20 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         self.logger = logger
 
     @abstractmethod
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
         raise NotImplementedError()
 
-    @abstractmethod
     def train_epoch(self, epoch: int):
-        raise NotImplementedError
+        self.model.train()
+        self.model.to(self.config.device)
+
+        losses = torch.zeros(len(self.dataloader))
+        for batch_idx, batch in enumerate(
+            tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
+        ):
+            losses[batch_idx] = self.train_batch(batch, batch_idx)
+
+        self.logger.log({"train/loss": losses.mean().item()}, epoch)
 
 
 @dataclass
@@ -83,9 +91,7 @@ def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimi
             weight_decay=optimizer_config.weight_decay,
         )
     else:
-        raise ValueError(
-            f"Optimizer {optimizer_config.optimizer_name} is not supported"
-        )
+        raise ValueError(f"Optimizer {optimizer_config.optimizer_name} is not supported")
 
 
 def get_lr_scheduler(
@@ -114,9 +120,7 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         self.lr_scheduler = get_lr_scheduler(self.optimizer, config.lr_scheduler_config)
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_batch(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -131,16 +135,7 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         return loss
 
     def train_epoch(self, epoch: int):
-        self.model.train()
-        self.model.to(self.config.device)
-
-        losses = torch.zeros(len(self.dataloader))
-        for batch_idx, batch in enumerate(
-            tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
-        ):
-            losses[batch_idx] = self.train_batch(batch, batch_idx)
-
-        self.logger.log({"train/loss": losses.mean().item()}, epoch)
+        super().train_epoch(epoch)
 
         if self.lr_scheduler:
             self.logger.log({"debug/lr": self.lr_scheduler.get_last_lr()[0]}, epoch)
@@ -148,9 +143,7 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
 
 
 class RandomEvolutionStrategy:
-    def __init__(
-        self, popsize: int, sigma: float, lr: float, initial_params_vector: torch.Tensor
-    ):
+    def __init__(self, popsize: int, sigma: float, lr: float, initial_params_vector: torch.Tensor):
         self.popsize = popsize
         self.sigma = sigma
         self.lr = lr
@@ -158,6 +151,7 @@ class RandomEvolutionStrategy:
         self._last_epsilon = torch.zeros(popsize, len(initial_params_vector))
 
     def ask(self) -> torch.Tensor:
+        """Returns"""
         epsilon = torch.randn(self.popsize, len(self.params_vector))
         self._last_epsilon = epsilon
         perturbations = epsilon * self.sigma
@@ -192,9 +186,20 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
             config.lr,
             nn.utils.parameters_to_vector(model.parameters()),
         )
+        self.criterion = nn.CrossEntropyLoss()
 
     def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        pass
+        x, y = batch
+        x, y = x.to(self.config.device), y.to(self.config.device)
 
-    def train_epoch(self, epoch: int):
-        pass
+        solutions = self.es.ask()
+        losses = torch.zeros(solutions.shape[0])
+
+        for i in range(len(solutions)):
+            nn.utils.vector_to_parameters(solutions[i], self.model.parameters())
+
+            y_hat = self.model(x)
+            losses[i] = self.criterion(y_hat, y)
+
+        self.es.tell(losses)
+        return losses.mean().item()

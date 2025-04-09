@@ -68,9 +68,7 @@ def get_cifar_dataloader(
     if use_every_nth is not None:
         dataset = Subset(dataset, indices=range(0, len(dataset), use_every_nth))
 
-    dataloader = DataLoader(
-        dataset, batch_size, num_workers=num_workers, shuffle=is_train
-    )
+    dataloader = DataLoader(dataset, batch_size, num_workers=num_workers, shuffle=is_train)
     return dataloader
 
 
@@ -96,9 +94,7 @@ def seed_everything(seed: int):
     torch.manual_seed(seed)
 
 
-def run_training(
-    training_config: TrainingConfig, wandb_run: Optional[wandb.wandb_run.Run]
-):
+def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wandb_run.Run]):
     if training_config.seed is not None:
         seed_everything(training_config.seed)
 

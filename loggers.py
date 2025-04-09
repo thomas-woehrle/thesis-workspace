@@ -17,7 +17,9 @@ class Logger:
         else:
             print(f"Step {step}: {data}")
 
-    def log_model(self, model: nn.Module, name: (str | None) = None, aliases: (list[str] | None) = None):
+    def log_model(
+        self, model: nn.Module, name: (str | None) = None, aliases: (list[str] | None) = None
+    ):
         """Effectively mirrors wandb run.log_model API"""
         path = "./temp_model"
         torch.save(model.state_dict(), path)
