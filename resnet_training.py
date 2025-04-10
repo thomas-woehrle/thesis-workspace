@@ -14,6 +14,7 @@ import wandb.wandb_run
 import evaluators
 import loggers
 import resnet_cifar
+import resnet_cifar_small
 import trainers
 
 # Mean and standard deviation for CIFAR-100 (precomputed)
@@ -80,6 +81,7 @@ class TrainingConfig:
     batch_size: int
     use_img_transforms: bool
     use_evolution: bool
+    model_slug: str
     num_workers: int = 0
     use_data_subset: bool = False
     is_cifar10: bool = False
@@ -116,7 +118,12 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
         num_workers=training_config.num_workers,
     )
 
-    model = resnet_cifar.ResNet18(nb_cls=10 if training_config.is_cifar10 else 100)
+    if training_config.model_slug == "small_resnet20":
+        model = resnet_cifar_small.resnet20(nb_cls=10 if training_config.is_cifar10 else 100)
+    elif training_config.model_slug == "resnet18":
+        model = resnet_cifar.ResNet18(nb_cls=10 if training_config.is_cifar10 else 100)
+    else:
+        raise ValueError(f"Model {training_config.model_slug} is not supported")
     logger = loggers.Logger(wandb_run)
 
     if training_config.use_evolution:
@@ -140,11 +147,12 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
 
 if __name__ == "__main__":
     device = torch.device("mps")
-    is_test_run = True
+    is_test_run = False
     is_cifar10 = False
     num_epochs = 10
     seed: Optional[int] = None
-    use_evolution = True
+    use_evolution = False
+    model_slug = "small_resnet20"
 
     if use_evolution:
         trainer_config = trainers.EvolutionaryTrainerConfig(
@@ -179,6 +187,7 @@ if __name__ == "__main__":
         is_cifar10=is_cifar10,
         num_workers=0 if is_test_run else 4,
         seed=seed,
+        model_slug=model_slug,
     )
 
     project = "thesis_baseline_testruns" if is_test_run else "thesis_baseline"
