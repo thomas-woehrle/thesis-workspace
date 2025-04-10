@@ -148,10 +148,7 @@ if __name__ == "__main__":
 
     if use_evolution:
         trainer_config = trainers.EvolutionaryTrainerConfig(
-            device=device,
-            popsize=200,
-            sigma=0.1,
-            lr=0.001,
+            device=device, popsize=100, sigma=0.1, lr=0.01, use_antithetic_sampling=True
         )
     else:
         trainer_config = trainers.NormalTrainerConfig(

@@ -149,18 +149,29 @@ class RandomEvolutionStrategy:
         sigma: float,
         lr: float,
         initial_params_vector: torch.Tensor,
+        use_antithetic_sampling: bool,
         device: torch.device,
     ):
         self.popsize = popsize
         self.sigma = sigma
         self.lr = lr
+        self.use_antithetic_sampling = use_antithetic_sampling
         self.params_vector = initial_params_vector
         self._epsilon = torch.zeros(popsize, len(initial_params_vector))
         self.device = device
 
     def sample_new_epsilon(self):
         """Creates new epsilon. Epsilon is of shape popsize * num_params"""
-        self._epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
+        if self.use_antithetic_sampling:
+            assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
+
+            # This seemingly weird direct assignment to self._epsilon is done to not waste RAM
+            self._epsilon = torch.randn(
+                self.popsize // 2, len(self.params_vector), device=self.device
+            )
+            self._epsilon = torch.concatenate([self._epsilon, -self._epsilon], dim=0)
+        else:
+            self._epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
 
     def ask(self, individual_idx: int):
         return self.params_vector + self._epsilon[individual_idx] * self.sigma
@@ -178,6 +189,7 @@ class EvolutionaryTrainerConfig(TrainerConfig):
     popsize: int
     sigma: float
     lr: float
+    use_antithetic_sampling: bool
 
 
 class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
@@ -194,11 +206,13 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
             config.sigma,
             config.lr,
             nn.utils.parameters_to_vector(model.parameters()).to(config.device),
+            config.use_antithetic_sampling,
             device=config.device,
         )
         self.criterion = nn.CrossEntropyLoss()
 
     def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+        # Adapted from https://github.com/hardmaru/estool/tree/master
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
