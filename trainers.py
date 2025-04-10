@@ -132,7 +132,7 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         loss.backward()
         self.optimizer.step()
 
-        return loss
+        return loss.item()
 
     def train_epoch(self, epoch: int):
         super().train_epoch(epoch)
@@ -143,28 +143,37 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
 
 
 class RandomEvolutionStrategy:
-    def __init__(self, popsize: int, sigma: float, lr: float, initial_params_vector: torch.Tensor):
+    def __init__(
+        self,
+        popsize: int,
+        sigma: float,
+        lr: float,
+        initial_params_vector: torch.Tensor,
+        device: torch.device,
+    ):
         self.popsize = popsize
         self.sigma = sigma
         self.lr = lr
         self.params_vector = initial_params_vector
         self._last_epsilon = torch.zeros(popsize, len(initial_params_vector))
+        self.device = device
 
     def ask(self) -> torch.Tensor:
-        """Returns"""
-        epsilon = torch.randn(self.popsize, len(self.params_vector))
+        """Returns perturbations, not the mutated solutions. Perturbations of shape popsize * num_params"""
+        epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
         self._last_epsilon = epsilon
         perturbations = epsilon * self.sigma
-        solutions = perturbations + self.params_vector
-        return solutions
+        return perturbations
 
     def tell(self, losses: torch.Tensor):
         # losses of shape popsize x 1
         # estimate gradients
-        g_hat = (self._last_epsilon.T * losses).flatten()
+        g_hat = (self._last_epsilon.T @ (losses - losses.mean())).flatten()
+        g_hat = g_hat / (self.popsize * self.sigma)
         self.params_vector -= self.lr * g_hat
 
 
+@dataclass
 class EvolutionaryTrainerConfig(TrainerConfig):
     popsize: int
     sigma: float
@@ -184,7 +193,8 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
             config.popsize,
             config.sigma,
             config.lr,
-            nn.utils.parameters_to_vector(model.parameters()),
+            nn.utils.parameters_to_vector(model.parameters()).to(config.device),
+            device=config.device,
         )
         self.criterion = nn.CrossEntropyLoss()
 
@@ -192,14 +202,19 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
-        solutions = self.es.ask()
-        losses = torch.zeros(solutions.shape[0])
+        perturbations = self.es.ask()
+        losses = torch.zeros(perturbations.shape[0], device=self.config.device)
 
-        for i in range(len(solutions)):
-            nn.utils.vector_to_parameters(solutions[i], self.model.parameters())
-
-            y_hat = self.model(x)
-            losses[i] = self.criterion(y_hat, y)
+        with torch.no_grad():
+            for i in range(len(perturbations)):
+                solution_i = self.es.params_vector + perturbations[i]
+                nn.utils.vector_to_parameters(solution_i, self.model.parameters())
+                y_hat = self.model(x)
+                losses[i] = self.criterion(y_hat, y)
 
         self.es.tell(losses)
         return losses.mean().item()
+
+    @torch.no_grad()
+    def train_epoch(self, epoch: int):
+        return super().train_epoch(epoch)
