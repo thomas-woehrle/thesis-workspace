@@ -74,11 +74,12 @@ def get_cifar_dataloader(
 
 @dataclass
 class TrainingConfig:
-    trainer_config: trainers.NormalTrainerConfig
+    trainer_config: trainers.TrainerConfig
     evaluator_config: evaluators.Evaluator1Config
     num_epochs: int
     batch_size: int
     use_img_transforms: bool
+    use_evolution: bool
     num_workers: int = 0
     use_data_subset: bool = False
     is_cifar10: bool = False
@@ -118,9 +119,16 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
     model = resnet_cifar.ResNet18(nb_cls=10 if training_config.is_cifar10 else 100)
     logger = loggers.Logger(wandb_run)
 
-    trainer = trainers.NormalTrainer(
-        model, train_dataloader, training_config.trainer_config, logger
-    )
+    if training_config.use_evolution:
+        assert isinstance(training_config.trainer_config, trainers.EvolutionaryTrainerConfig)
+        trainer = trainers.EvolutionaryTrainer(
+            model, train_dataloader, training_config.trainer_config, logger
+        )
+    else:
+        assert isinstance(training_config.trainer_config, trainers.NormalTrainerConfig)
+        trainer = trainers.NormalTrainer(
+            model, train_dataloader, training_config.trainer_config, logger
+        )
     evaluator = evaluators.Evaluator1(
         model, val_dataloader, training_config.evaluator_config, logger
     )
@@ -131,24 +139,34 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
 
 
 if __name__ == "__main__":
-    device = torch.device("mps")
-    is_test_run = False
+    device = torch.device("cpu")
+    is_test_run = True
     is_cifar10 = False
-    num_epochs = 30
+    num_epochs = 10
     seed: Optional[int] = None
+    use_evolution = True
 
-    trainer_config = trainers.NormalTrainerConfig(
-        device=device,
-        optimizer_config=trainers.OptimizerConfig(
-            optimizer_name="sgd",
-            lr=0.01 if is_test_run else 0.1,
-            weight_decay=1e-4,
-            momentum=0.9,
-        ),
-        lr_scheduler_config=trainers.LRSchedulerConfig(
-            use_cos_annealing_lr=True, T_max=num_epochs, eta_min=0
-        ),
-    )
+    if use_evolution:
+        trainer_config = trainers.EvolutionaryTrainerConfig(
+            device=device,
+            popsize=100,  # Example value
+            sigma=0.1,  # Example value
+            lr=0.0001,  # Example value
+        )
+    else:
+        trainer_config = trainers.NormalTrainerConfig(
+            device=device,
+            optimizer_config=trainers.OptimizerConfig(
+                optimizer_name="sgd",
+                lr=0.01 if is_test_run else 0.1,
+                weight_decay=1e-4,
+                momentum=0.9,
+            ),
+            lr_scheduler_config=trainers.LRSchedulerConfig(
+                use_cos_annealing_lr=True, T_max=num_epochs, eta_min=0
+            ),
+        )
+
     evaluator_config = evaluators.Evaluator1Config(
         device=device, do_log_models=False if is_test_run else True
     )
@@ -158,6 +176,7 @@ if __name__ == "__main__":
         evaluator_config=evaluator_config,
         num_epochs=num_epochs,
         batch_size=16,
+        use_evolution=use_evolution,
         use_img_transforms=True,
         use_data_subset=True if is_test_run else False,
         is_cifar10=is_cifar10,
