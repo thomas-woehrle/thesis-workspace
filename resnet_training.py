@@ -139,7 +139,7 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
 
 
 if __name__ == "__main__":
-    device = torch.device("cpu")
+    device = torch.device("mps")
     is_test_run = True
     is_cifar10 = False
     num_epochs = 10
@@ -149,9 +149,9 @@ if __name__ == "__main__":
     if use_evolution:
         trainer_config = trainers.EvolutionaryTrainerConfig(
             device=device,
-            popsize=100,  # Example value
-            sigma=0.1,  # Example value
-            lr=0.0001,  # Example value
+            popsize=200,
+            sigma=0.1,
+            lr=0.001,
         )
     else:
         trainer_config = trainers.NormalTrainerConfig(

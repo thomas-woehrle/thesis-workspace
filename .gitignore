@@ -2,3 +2,4 @@
 /artifacts
 /wandb
 /__pycache__
+*.ipynb

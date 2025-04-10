@@ -155,20 +155,20 @@ class RandomEvolutionStrategy:
         self.sigma = sigma
         self.lr = lr
         self.params_vector = initial_params_vector
-        self._last_epsilon = torch.zeros(popsize, len(initial_params_vector))
+        self._epsilon = torch.zeros(popsize, len(initial_params_vector))
         self.device = device
 
-    def ask(self) -> torch.Tensor:
-        """Returns perturbations, not the mutated solutions. Perturbations of shape popsize * num_params"""
-        epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
-        self._last_epsilon = epsilon
-        perturbations = epsilon * self.sigma
-        return perturbations
+    def sample_new_epsilon(self):
+        """Creates new epsilon. Epsilon is of shape popsize * num_params"""
+        self._epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
+
+    def ask(self, individual_idx: int):
+        return self.params_vector + self._epsilon[individual_idx] * self.sigma
 
     def tell(self, losses: torch.Tensor):
         # losses of shape popsize x 1
         # estimate gradients
-        g_hat = (self._last_epsilon.T @ (losses - losses.mean())).flatten()
+        g_hat = (self._epsilon.T @ (losses - losses.mean())).flatten()
         g_hat = g_hat / (self.popsize * self.sigma)
         self.params_vector -= self.lr * g_hat
 
@@ -202,12 +202,12 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
-        perturbations = self.es.ask()
-        losses = torch.zeros(perturbations.shape[0], device=self.config.device)
+        self.es.sample_new_epsilon()
+        losses = torch.zeros(self.es.popsize, device=self.config.device)
 
         with torch.no_grad():
-            for i in range(len(perturbations)):
-                solution_i = self.es.params_vector + perturbations[i]
+            for i in range(self.es.popsize):
+                solution_i = self.es.ask(i)
                 nn.utils.vector_to_parameters(solution_i, self.model.parameters())
                 y_hat = self.model(x)
                 losses[i] = self.criterion(y_hat, y)
