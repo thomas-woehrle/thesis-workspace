@@ -58,9 +58,11 @@ class OptimizerConfig:
 
 @dataclass
 class LRSchedulerConfig:
-    use_cos_annealing_lr: bool
+    lr_scheduler_slug: Optional[str]
     T_max: Optional[int] = None
     eta_min: Optional[float] = None
+    milestones: Optional[list[int]] = None
+    gamma: Optional[float] = None
 
 
 @dataclass
@@ -97,14 +99,22 @@ def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimi
 def get_lr_scheduler(
     optimizer: Optimizer, scheduler_config: LRSchedulerConfig
 ) -> Optional[LRScheduler]:
-    if scheduler_config.use_cos_annealing_lr:
+    if scheduler_config.lr_scheduler_slug is None:
+        return None
+    elif scheduler_config.lr_scheduler_slug == "cosine_annealing":
         assert scheduler_config.eta_min is not None
         assert scheduler_config.T_max is not None
         return optim.lr_scheduler.CosineAnnealingLR(
             optimizer, scheduler_config.T_max, scheduler_config.eta_min
         )
+    elif scheduler_config.lr_scheduler_slug == "multi_step":
+        assert scheduler_config.milestones is not None
+        assert scheduler_config.gamma is not None
+        return optim.lr_scheduler.MultiStepLR(
+            optimizer, scheduler_config.milestones, scheduler_config.gamma
+        )
     else:
-        return None
+        raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
 
 
 class NormalTrainer(Trainer[NormalTrainerConfig]):

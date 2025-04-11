@@ -149,14 +149,14 @@ if __name__ == "__main__":
     device = torch.device("mps")
     is_test_run = False
     is_cifar10 = False
-    num_epochs = 10
+    num_epochs = 40
     seed: Optional[int] = None
     use_evolution = False
     model_slug = "small_resnet20"
 
     if use_evolution:
         trainer_config = trainers.EvolutionaryTrainerConfig(
-            device=device, popsize=100, sigma=0.1, lr=0.01, use_antithetic_sampling=True
+            device=device, popsize=100, sigma=0.1, lr=0.001, use_antithetic_sampling=True
         )
     else:
         trainer_config = trainers.NormalTrainerConfig(
@@ -168,7 +168,9 @@ if __name__ == "__main__":
                 momentum=0.9,
             ),
             lr_scheduler_config=trainers.LRSchedulerConfig(
-                use_cos_annealing_lr=True, T_max=num_epochs, eta_min=0
+                lr_scheduler_slug="multi_step",
+                milestones=[int(0.25 * num_epochs), int(0.5 * num_epochs), int(0.75 * num_epochs)],
+                gamma=0.2,
             ),
         )
 
