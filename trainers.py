@@ -50,7 +50,7 @@ class Trainer[ConfigType: TrainerConfig](ABC):
 
 @dataclass
 class OptimizerConfig:
-    optimizer_name: str
+    optimizer_slug: str
     lr: float
     weight_decay: float = 0.0
     momentum: float = 0.0
@@ -73,27 +73,27 @@ class NormalTrainerConfig(TrainerConfig):
 
 
 def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimizer:
-    if optimizer_config.optimizer_name == "sgd":
+    if optimizer_config.optimizer_slug == "sgd":
         return optim.SGD(
             model.parameters(),
             lr=optimizer_config.lr,
             momentum=optimizer_config.momentum,
             weight_decay=optimizer_config.weight_decay,
         )
-    elif optimizer_config.optimizer_name == "adam":
+    elif optimizer_config.optimizer_slug == "adam":
         return optim.Adam(
             model.parameters(),
             lr=optimizer_config.lr,
             weight_decay=optimizer_config.weight_decay,
         )
-    elif optimizer_config.optimizer_name == "adamw":
+    elif optimizer_config.optimizer_slug == "adamw":
         return optim.AdamW(
             model.parameters(),
             lr=optimizer_config.lr,
             weight_decay=optimizer_config.weight_decay,
         )
     else:
-        raise ValueError(f"Optimizer {optimizer_config.optimizer_name} is not supported")
+        raise ValueError(f"Optimizer {optimizer_config.optimizer_slug} is not supported")
 
 
 def get_lr_scheduler(
