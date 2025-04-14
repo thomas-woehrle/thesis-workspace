@@ -35,7 +35,7 @@ class Evaluator1:
         self.config = config
         self.logger = logger
 
-    def evaluate_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+    def eval_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -50,7 +50,7 @@ class Evaluator1:
         return loss, total_preds, top1_correct_preds, top5_correct_preds
 
     @torch.no_grad()
-    def evaluate_epoch(self, epoch: int):
+    def eval_epoch(self, epoch: int):
         """Validate the current model"""
         self.model.eval()
         self.model.to(self.config.device)
@@ -68,7 +68,7 @@ class Evaluator1:
                 batch_total_preds,
                 batch_top1_correct_preds,
                 batch_top5_correct_preds,
-            ) = self.evaluate_batch(batch, batch_idx)
+            ) = self.eval_step(batch, batch_idx)
             losses[batch_idx] = batch_loss
             total_preds[batch_idx] = batch_total_preds
             top1_correct_preds[batch_idx] = batch_top1_correct_preds
