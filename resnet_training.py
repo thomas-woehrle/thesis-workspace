@@ -129,20 +129,21 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
     if training_config.use_evolution:
         assert isinstance(training_config.trainer_config, trainers.EvolutionaryTrainerConfig)
         trainer = trainers.EvolutionaryTrainer(
-            model, train_dataloader, training_config.trainer_config, logger
+            model, train_dataloader, logger, training_config.trainer_config
         )
     else:
         assert isinstance(training_config.trainer_config, trainers.NormalTrainerConfig)
         trainer = trainers.NormalTrainer(
-            model, train_dataloader, training_config.trainer_config, logger
+            model, train_dataloader, logger, training_config.trainer_config
         )
+
     evaluator = evaluators.Evaluator1(
         model, val_dataloader, training_config.evaluator_config, logger
     )
 
     for epoch in range(training_config.num_epochs):
         trainer.train_epoch(epoch)
-        evaluator.evaluate_epoch(epoch)
+        evaluator.eval_epoch(epoch)
 
 
 if __name__ == "__main__":
@@ -151,8 +152,9 @@ if __name__ == "__main__":
     is_cifar10 = False
     num_epochs = 40
     seed: Optional[int] = None
-    use_evolution = False
+    use_evolution = True
     model_slug = "small_resnet20"
+    initial_lr = 0.05
 
     if use_evolution:
         trainer_config = trainers.EvolutionaryTrainerConfig(
@@ -163,7 +165,7 @@ if __name__ == "__main__":
             device=device,
             optimizer_config=trainers.OptimizerConfig(
                 optimizer_name="sgd",
-                lr=0.01 if is_test_run else 0.1,
+                lr=0.01 if is_test_run else initial_lr,
                 weight_decay=1e-4,
                 momentum=0.9,
             ),

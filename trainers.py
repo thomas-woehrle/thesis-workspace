@@ -23,16 +23,16 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: ConfigType,
         logger: loggers.Logger,
+        config: ConfigType,
     ):
         self.model = model
         self.dataloader = dataloader
-        self.config = config
         self.logger = logger
+        self.config = config
 
     @abstractmethod
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
         raise NotImplementedError()
 
     def train_epoch(self, epoch: int):
@@ -43,7 +43,7 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         for batch_idx, batch in enumerate(
             tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
         ):
-            losses[batch_idx] = self.train_batch(batch, batch_idx)
+            losses[batch_idx] = self.train_step(batch, batch_idx)
 
         self.logger.log({"train/loss": losses.mean().item()}, epoch)
 
@@ -122,15 +122,15 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: NormalTrainerConfig,
         logger: loggers.Logger,
+        config: NormalTrainerConfig,
     ):
-        super().__init__(model, dataloader, config, logger)
+        super().__init__(model, dataloader, logger, config)
         self.optimizer = get_optimizer(model, config.optimizer_config)
         self.lr_scheduler = get_lr_scheduler(self.optimizer, config.lr_scheduler_config)
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -207,10 +207,10 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: EvolutionaryTrainerConfig,
         logger: loggers.Logger,
+        config: EvolutionaryTrainerConfig,
     ):
-        super().__init__(model, dataloader, config, logger)
+        super().__init__(model, dataloader, logger, config)
         self.es = RandomEvolutionStrategy(
             config.popsize,
             config.sigma,
@@ -221,7 +221,7 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         )
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         # Adapted from https://github.com/hardmaru/estool/tree/master
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
@@ -229,12 +229,12 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         self.es.sample_new_epsilon()
         losses = torch.zeros(self.es.popsize, device=self.config.device)
 
-        with torch.no_grad():
-            for i in range(self.es.popsize):
-                solution_i = self.es.ask(i)
-                nn.utils.vector_to_parameters(solution_i, self.model.parameters())
-                y_hat = self.model(x)
-                losses[i] = self.criterion(y_hat, y)
+        # with torch.no_grad():
+        for i in range(self.es.popsize):
+            solution_i = self.es.ask(i)
+            nn.utils.vector_to_parameters(solution_i, self.model.parameters())
+            y_hat = self.model(x)
+            losses[i] = self.criterion(y_hat, y)
 
         self.es.tell(losses)
         return losses.mean().item()
