@@ -41,7 +41,8 @@ class NaturalEvolutionOptimizer:
     def step(self, losses: torch.Tensor):
         # losses of shape popsize x 1
         # estimate gradients
-        g_hat = (self._epsilon.T @ (losses - losses.mean())).flatten()
+        normalized_losses = (losses - losses.mean()) / losses.std()
+        g_hat = (self._epsilon.T @ normalized_losses).flatten()
         g_hat = g_hat / (self.popsize * self.sigma)
         self.params_vector -= self.lr * g_hat
         nn.utils.vector_to_parameters(self.params_vector, self.model.parameters())
