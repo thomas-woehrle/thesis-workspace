@@ -7,10 +7,9 @@ import torch.nn as nn
 import torch.optim as optim
 import tqdm
 from torch.utils.data import DataLoader
-from torch.optim.optimizer import Optimizer
-from torch.optim.lr_scheduler import LRScheduler
 
 import loggers
+import optimizers
 
 
 @dataclass
@@ -72,7 +71,7 @@ class NormalTrainerConfig(TrainerConfig):
     lr_scheduler_config: LRSchedulerConfig
 
 
-def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimizer:
+def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> optim.Optimizer:
     if optimizer_config.optimizer_slug == "sgd":
         return optim.SGD(
             model.parameters(),
@@ -97,8 +96,8 @@ def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimi
 
 
 def get_lr_scheduler(
-    optimizer: Optimizer, scheduler_config: LRSchedulerConfig
-) -> Optional[LRScheduler]:
+    optimizer: optim.Optimizer, scheduler_config: LRSchedulerConfig
+) -> Optional[optim.lr_scheduler.LRScheduler]:
     if scheduler_config.lr_scheduler_slug is None:
         return None
     elif scheduler_config.lr_scheduler_slug == "cosine_annealing":
@@ -152,48 +151,6 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
             self.lr_scheduler.step()
 
 
-class RandomEvolutionStrategy:
-    def __init__(
-        self,
-        popsize: int,
-        sigma: float,
-        lr: float,
-        initial_params_vector: torch.Tensor,
-        use_antithetic_sampling: bool,
-        device: torch.device,
-    ):
-        self.popsize = popsize
-        self.sigma = sigma
-        self.lr = lr
-        self.use_antithetic_sampling = use_antithetic_sampling
-        self.params_vector = initial_params_vector
-        self._epsilon = torch.zeros(popsize, len(initial_params_vector))
-        self.device = device
-
-    def sample_new_epsilon(self):
-        """Creates new epsilon. Epsilon is of shape popsize * num_params"""
-        if self.use_antithetic_sampling:
-            assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
-
-            # This seemingly weird direct assignment to self._epsilon is done to not waste RAM
-            self._epsilon = torch.randn(
-                self.popsize // 2, len(self.params_vector), device=self.device
-            )
-            self._epsilon = torch.concatenate([self._epsilon, -self._epsilon], dim=0)
-        else:
-            self._epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
-
-    def ask(self, individual_idx: int):
-        return self.params_vector + self._epsilon[individual_idx] * self.sigma
-
-    def tell(self, losses: torch.Tensor):
-        # losses of shape popsize x 1
-        # estimate gradients
-        g_hat = (self._epsilon.T @ (losses - losses.mean())).flatten()
-        g_hat = g_hat / (self.popsize * self.sigma)
-        self.params_vector -= self.lr * g_hat
-
-
 @dataclass
 class EvolutionaryTrainerConfig(TrainerConfig):
     popsize: int
@@ -210,33 +167,31 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         logger: loggers.Logger,
         config: EvolutionaryTrainerConfig,
     ):
+        model.to(config.device)
         super().__init__(model, dataloader, logger, config)
-        self.es = RandomEvolutionStrategy(
+        self.optimizer = optimizers.NaturalEvolutionOptimizer(
             config.popsize,
             config.sigma,
             config.lr,
-            nn.utils.parameters_to_vector(model.parameters()).to(config.device),
+            model,
             config.use_antithetic_sampling,
-            device=config.device,
+            config.device,
         )
         self.criterion = nn.CrossEntropyLoss()
 
     def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        # Adapted from https://github.com/hardmaru/estool/tree/master
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
-        self.es.sample_new_epsilon()
-        losses = torch.zeros(self.es.popsize, device=self.config.device)
+        self.optimizer.prepare_mutations()
+        losses = torch.zeros(self.config.popsize, device=self.config.device)
 
-        # with torch.no_grad():
-        for i in range(self.es.popsize):
-            solution_i = self.es.ask(i)
-            nn.utils.vector_to_parameters(solution_i, self.model.parameters())
+        for i in range(self.config.popsize):
+            self.optimizer.load_mutation_into_model(i)
             y_hat = self.model(x)
             losses[i] = self.criterion(y_hat, y)
 
-        self.es.tell(losses)
+        self.optimizer.step(losses)
         return losses.mean().item()
 
     @torch.no_grad()
