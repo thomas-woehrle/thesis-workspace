@@ -7,10 +7,9 @@ import torch.nn as nn
 import torch.optim as optim
 import tqdm
 from torch.utils.data import DataLoader
-from torch.optim.optimizer import Optimizer
-from torch.optim.lr_scheduler import LRScheduler
 
 import loggers
+import optimizers
 
 
 @dataclass
@@ -23,16 +22,16 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: ConfigType,
         logger: loggers.Logger,
+        config: ConfigType,
     ):
         self.model = model
         self.dataloader = dataloader
-        self.config = config
         self.logger = logger
+        self.config = config
 
     @abstractmethod
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
         raise NotImplementedError()
 
     def train_epoch(self, epoch: int):
@@ -43,14 +42,14 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         for batch_idx, batch in enumerate(
             tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
         ):
-            losses[batch_idx] = self.train_batch(batch, batch_idx)
+            losses[batch_idx] = self.train_step(batch, batch_idx)
 
         self.logger.log({"train/loss": losses.mean().item()}, epoch)
 
 
 @dataclass
 class OptimizerConfig:
-    optimizer_name: str
+    optimizer_slug: str
     lr: float
     weight_decay: float = 0.0
     momentum: float = 0.0
@@ -59,8 +58,11 @@ class OptimizerConfig:
 @dataclass
 class LRSchedulerConfig:
     lr_scheduler_slug: Optional[str]
+    lr_scheduler_slug: Optional[str]
     T_max: Optional[int] = None
     eta_min: Optional[float] = None
+    milestones: Optional[list[int]] = None
+    gamma: Optional[float] = None
     milestones: Optional[list[int]] = None
     gamma: Optional[float] = None
 
@@ -72,33 +74,33 @@ class NormalTrainerConfig(TrainerConfig):
     lr_scheduler_config: LRSchedulerConfig
 
 
-def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> Optimizer:
-    if optimizer_config.optimizer_name == "sgd":
+def get_optimizer(model: nn.Module, optimizer_config: OptimizerConfig) -> optim.Optimizer:
+    if optimizer_config.optimizer_slug == "sgd":
         return optim.SGD(
             model.parameters(),
             lr=optimizer_config.lr,
             momentum=optimizer_config.momentum,
             weight_decay=optimizer_config.weight_decay,
         )
-    elif optimizer_config.optimizer_name == "adam":
+    elif optimizer_config.optimizer_slug == "adam":
         return optim.Adam(
             model.parameters(),
             lr=optimizer_config.lr,
             weight_decay=optimizer_config.weight_decay,
         )
-    elif optimizer_config.optimizer_name == "adamw":
+    elif optimizer_config.optimizer_slug == "adamw":
         return optim.AdamW(
             model.parameters(),
             lr=optimizer_config.lr,
             weight_decay=optimizer_config.weight_decay,
         )
     else:
-        raise ValueError(f"Optimizer {optimizer_config.optimizer_name} is not supported")
+        raise ValueError(f"Optimizer {optimizer_config.optimizer_slug} is not supported")
 
 
 def get_lr_scheduler(
-    optimizer: Optimizer, scheduler_config: LRSchedulerConfig
-) -> Optional[LRScheduler]:
+    optimizer: optim.Optimizer, scheduler_config: LRSchedulerConfig
+) -> Optional[optim.lr_scheduler.LRScheduler]:
     if scheduler_config.lr_scheduler_slug is None:
         return None
     elif scheduler_config.lr_scheduler_slug == "cosine_annealing":
@@ -113,7 +115,14 @@ def get_lr_scheduler(
         return optim.lr_scheduler.MultiStepLR(
             optimizer, scheduler_config.milestones, scheduler_config.gamma
         )
+    elif scheduler_config.lr_scheduler_slug == "multi_step":
+        assert scheduler_config.milestones is not None
+        assert scheduler_config.gamma is not None
+        return optim.lr_scheduler.MultiStepLR(
+            optimizer, scheduler_config.milestones, scheduler_config.gamma
+        )
     else:
+        raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
         raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
 
 
@@ -122,15 +131,15 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: NormalTrainerConfig,
         logger: loggers.Logger,
+        config: NormalTrainerConfig,
     ):
-        super().__init__(model, dataloader, config, logger)
+        super().__init__(model, dataloader, logger, config)
         self.optimizer = get_optimizer(model, config.optimizer_config)
         self.lr_scheduler = get_lr_scheduler(self.optimizer, config.lr_scheduler_config)
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -152,48 +161,6 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
             self.lr_scheduler.step()
 
 
-class RandomEvolutionStrategy:
-    def __init__(
-        self,
-        popsize: int,
-        sigma: float,
-        lr: float,
-        initial_params_vector: torch.Tensor,
-        use_antithetic_sampling: bool,
-        device: torch.device,
-    ):
-        self.popsize = popsize
-        self.sigma = sigma
-        self.lr = lr
-        self.use_antithetic_sampling = use_antithetic_sampling
-        self.params_vector = initial_params_vector
-        self._epsilon = torch.zeros(popsize, len(initial_params_vector))
-        self.device = device
-
-    def sample_new_epsilon(self):
-        """Creates new epsilon. Epsilon is of shape popsize * num_params"""
-        if self.use_antithetic_sampling:
-            assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
-
-            # This seemingly weird direct assignment to self._epsilon is done to not waste RAM
-            self._epsilon = torch.randn(
-                self.popsize // 2, len(self.params_vector), device=self.device
-            )
-            self._epsilon = torch.concatenate([self._epsilon, -self._epsilon], dim=0)
-        else:
-            self._epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
-
-    def ask(self, individual_idx: int):
-        return self.params_vector + self._epsilon[individual_idx] * self.sigma
-
-    def tell(self, losses: torch.Tensor):
-        # losses of shape popsize x 1
-        # estimate gradients
-        g_hat = (self._epsilon.T @ (losses - losses.mean())).flatten()
-        g_hat = g_hat / (self.popsize * self.sigma)
-        self.params_vector -= self.lr * g_hat
-
-
 @dataclass
 class EvolutionaryTrainerConfig(TrainerConfig):
     popsize: int
@@ -207,36 +174,34 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: EvolutionaryTrainerConfig,
         logger: loggers.Logger,
+        config: EvolutionaryTrainerConfig,
     ):
-        super().__init__(model, dataloader, config, logger)
-        self.es = RandomEvolutionStrategy(
+        model.to(config.device)
+        super().__init__(model, dataloader, logger, config)
+        self.optimizer = optimizers.OpenAIEvolutionaryOptimizer(
             config.popsize,
             config.sigma,
             config.lr,
-            nn.utils.parameters_to_vector(model.parameters()).to(config.device),
+            model,
             config.use_antithetic_sampling,
-            device=config.device,
+            config.device,
         )
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_batch(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        # Adapted from https://github.com/hardmaru/estool/tree/master
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
-        self.es.sample_new_epsilon()
-        losses = torch.zeros(self.es.popsize, device=self.config.device)
+        self.optimizer.prepare_mutations()
+        losses = torch.zeros(self.config.popsize, device=self.config.device)
 
-        with torch.no_grad():
-            for i in range(self.es.popsize):
-                solution_i = self.es.ask(i)
-                nn.utils.vector_to_parameters(solution_i, self.model.parameters())
-                y_hat = self.model(x)
-                losses[i] = self.criterion(y_hat, y)
+        for i in range(self.config.popsize):
+            self.optimizer.load_mutation_into_model(i)
+            y_hat = self.model(x)
+            losses[i] = self.criterion(y_hat, y)
 
-        self.es.tell(losses)
+        self.optimizer.step(losses)
         return losses.mean().item()
 
     @torch.no_grad()

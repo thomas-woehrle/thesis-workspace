@@ -2,4 +2,5 @@
 /artifacts
 /wandb
 /__pycache__
+/run_configs
 *.ipynb
