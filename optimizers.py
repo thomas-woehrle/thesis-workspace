@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class NaturalEvolutionOptimizer:
+class OpenAIEvolutionaryOptimizer:
     def __init__(
         self,
         popsize: int,

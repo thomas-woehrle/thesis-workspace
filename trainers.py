@@ -169,7 +169,7 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
     ):
         model.to(config.device)
         super().__init__(model, dataloader, logger, config)
-        self.optimizer = optimizers.NaturalEvolutionOptimizer(
+        self.optimizer = optimizers.OpenAIEvolutionaryOptimizer(
             config.popsize,
             config.sigma,
             config.lr,
