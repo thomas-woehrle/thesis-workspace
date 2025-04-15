@@ -123,7 +123,6 @@ def get_lr_scheduler(
         )
     else:
         raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
-        raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
 
 
 class NormalTrainer(Trainer[NormalTrainerConfig]):
@@ -162,20 +161,20 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
 
 
 @dataclass
-class EvolutionaryTrainerConfig(TrainerConfig):
+class OpenAIEvolutionaryTrainerConfig(TrainerConfig):
     popsize: int
     sigma: float
     lr: float
     use_antithetic_sampling: bool
 
 
-class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
+class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
     def __init__(
         self,
         model: nn.Module,
         dataloader: DataLoader,
         logger: loggers.Logger,
-        config: EvolutionaryTrainerConfig,
+        config: OpenAIEvolutionaryTrainerConfig,
     ):
         model.to(config.device)
         super().__init__(model, dataloader, logger, config)
@@ -200,6 +199,54 @@ class EvolutionaryTrainer(Trainer[EvolutionaryTrainerConfig]):
             self.optimizer.load_mutation_into_model(i)
             y_hat = self.model(x)
             losses[i] = self.criterion(y_hat, y)
+
+        self.optimizer.step(losses)
+        return losses.mean().item()
+
+    @torch.no_grad()
+    def train_epoch(self, epoch: int):
+        return super().train_epoch(epoch)
+
+
+@dataclass
+class SimpleEvolutionaryTrainerConfig(TrainerConfig):
+    n_parents: int
+    n_children_per_parent: int
+    sigma: float
+
+
+class SimpleEvolutionaryTrainer(Trainer[SimpleEvolutionaryTrainerConfig]):
+    # init as super()...
+
+    def __init__(
+        self,
+        model: nn.Module,
+        dataloader: DataLoader,
+        logger: loggers.Logger,
+        config: SimpleEvolutionaryTrainerConfig,
+    ):
+        model.to(config.device)
+        super().__init__(model, dataloader, logger, config)
+        self.optimizer = optimizers.SimpleEvolutionaryOptimizer(
+            config.n_parents, config.n_children_per_parent, config.sigma, model, config.device
+        )
+        self.criterion = nn.CrossEntropyLoss()
+
+    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
+        x, y = batch
+        x, y = x.to(self.config.device), y.to(self.config.device)
+
+        self.optimizer.prepare_mutations()
+
+        losses = torch.zeros(self.config.n_parents, self.config.n_children_per_parent + 1)
+        for ip in range(self.config.n_parents):
+            for im in range(self.config.n_children_per_parent + 1):
+                if im == self.config.n_children_per_parent:
+                    self.optimizer.load_individual_into_model(ip, None)
+                else:
+                    self.optimizer.load_individual_into_model(ip, im)
+                y_hat = self.model(x)
+                losses[ip][im] = self.criterion(y_hat, y)
 
         self.optimizer.step(losses)
         return losses.mean().item()

@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
@@ -79,12 +80,12 @@ def get_cifar_dataloader(
 
 @dataclass
 class TrainingConfig:
+    trainer_slug: str
     trainer_config: trainers.TrainerConfig
     evaluator_config: evaluators.Evaluator1Config
     num_epochs: int
     batch_size: int
     use_img_transforms: bool
-    use_evolution: bool
     model_slug: str
     num_workers: int = 0
     use_data_subset: bool = False
@@ -99,6 +100,26 @@ def seed_everything(seed: int):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def get_trainer(
+    trainer_slug: str,
+    model: nn.Module,
+    dataloader: DataLoader,
+    logger: loggers.Logger,
+    trainerConfig: trainers.TrainerConfig,
+) -> trainers.Trainer:
+    if trainer_slug == "backprop_trainer":
+        assert isinstance(trainerConfig, trainers.NormalTrainerConfig)
+        return trainers.NormalTrainer(model, dataloader, logger, trainerConfig)
+    elif trainer_slug == "openai_evolutionary_trainer":
+        assert isinstance(trainerConfig, trainers.OpenAIEvolutionaryTrainerConfig)
+        return trainers.OpenAIEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
+    elif trainer_slug == "simple_evolutionary_trainer":
+        assert isinstance(trainerConfig, trainers.SimpleEvolutionaryTrainerConfig)
+        return trainers.SimpleEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
+    else:
+        raise ValueError(f"Trainer {trainer_slug} is not supported")
 
 
 def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wandb_run.Run]):
@@ -136,16 +157,13 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
     logger = loggers.Logger(wandb_run)
 
     # Get trainer
-    if training_config.use_evolution:
-        assert isinstance(training_config.trainer_config, trainers.EvolutionaryTrainerConfig)
-        trainer = trainers.EvolutionaryTrainer(
-            model, train_dataloader, logger, training_config.trainer_config
-        )
-    else:
-        assert isinstance(training_config.trainer_config, trainers.NormalTrainerConfig)
-        trainer = trainers.NormalTrainer(
-            model, train_dataloader, logger, training_config.trainer_config
-        )
+    trainer = get_trainer(
+        training_config.trainer_slug,
+        model,
+        train_dataloader,
+        logger,
+        training_config.trainer_config,
+    )
 
     # Get evaluator
     evaluator = evaluators.Evaluator1(
@@ -170,9 +188,16 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
     # Handle TrainerConfig
     trainer_config_dict = config_dict.pop("trainer_config")
 
-    if config_dict["use_evolution"]:
-        trainer_config = trainers.EvolutionaryTrainerConfig(device=device, **trainer_config_dict)
-    else:
+    # TODO
+    if config_dict["trainer_slug"] == "openai_evolutionary_trainer":
+        trainer_config = trainers.OpenAIEvolutionaryTrainerConfig(
+            device=device, **trainer_config_dict
+        )
+    elif config_dict["trainer_slug"] == "simple_evolutionary_trainer":
+        trainer_config = trainers.SimpleEvolutionaryTrainerConfig(
+            device=device, **trainer_config_dict
+        )
+    elif config_dict["trainer_slug"] == "backprop_trainer":
         # Handle nested NormalTrainerConfig parts
         optimizer_config = trainers.OptimizerConfig(**trainer_config_dict["optimizer_config"])
         lr_scheduler_config = trainers.LRSchedulerConfig(
