@@ -210,8 +210,8 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
 
 @dataclass
 class SimpleEvolutionaryTrainerConfig(TrainerConfig):
-    n_parents: int
-    n_children_per_parent: int
+    n_families: int
+    members_per_family: int
     sigma: float
 
 
@@ -228,7 +228,7 @@ class SimpleEvolutionaryTrainer(Trainer[SimpleEvolutionaryTrainerConfig]):
         model.to(config.device)
         super().__init__(model, dataloader, logger, config)
         self.optimizer = optimizers.SimpleEvolutionaryOptimizer(
-            config.n_parents, config.n_children_per_parent, config.sigma, model, config.device
+            config.n_families, config.members_per_family, config.sigma, model, config.device
         )
         self.criterion = nn.CrossEntropyLoss()
 
@@ -236,19 +236,17 @@ class SimpleEvolutionaryTrainer(Trainer[SimpleEvolutionaryTrainerConfig]):
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
-        self.optimizer.prepare_mutations()
+        self.optimizer.mutate()
 
-        losses = torch.zeros(self.config.n_parents, self.config.n_children_per_parent + 1)
-        for ip in range(self.config.n_parents):
-            for im in range(self.config.n_children_per_parent + 1):
-                if im == self.config.n_children_per_parent:
-                    self.optimizer.load_individual_into_model(ip, None)
-                else:
-                    self.optimizer.load_individual_into_model(ip, im)
+        losses = torch.zeros(self.optimizer.n_families, self.optimizer.members_per_family)
+        for family_idx in range(self.optimizer.n_families):
+            for member_idx in range(self.optimizer.members_per_family):
+                self.optimizer.load_individual_into_model(family_idx, member_idx)
                 y_hat = self.model(x)
-                losses[ip][im] = self.criterion(y_hat, y)
+                losses[family_idx][member_idx] = self.criterion(y_hat, y)
 
         self.optimizer.step(losses)
+
         return losses.mean().item()
 
     @torch.no_grad()

@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch
 import torch.nn as nn
 
@@ -53,67 +51,51 @@ class OpenAIEvolutionaryOptimizer:
 class SimpleEvolutionaryOptimizer:
     def __init__(
         self,
-        n_parents: int,
-        n_children_per_parent: int,
+        n_families: int,
+        members_per_family: int,
         sigma: float,
         model: nn.Module,
-        # use_antithetic_sampling: bool,
         device: torch.device,
     ):
-        self.n_parents = n_parents
-        self.n_children_per_parent = n_children_per_parent
+        self.n_families = n_families
+        self.members_per_family = members_per_family
         self.sigma = sigma
         self.model = model
-        self.parent_param_vectors = nn.utils.parameters_to_vector(model.parameters()).repeat(
-            n_parents, 1
-        )
-        self.mutations = torch.zeros(
-            n_parents, n_children_per_parent, self.parent_param_vectors.shape[-1]
+        # every individual starts with the same parameters
+        self.family_param_vectors = nn.utils.parameters_to_vector(model.parameters()).repeat(
+            n_families, members_per_family, 1
         )
         self.device = device
 
-    def prepare_mutations(self):
-        """Creates new epsilon. Epsilon is of shape popsize * num_params"""
-        self.mutations = (
+    def mutate(self):
+        # parents, ie the first member of each family should not be mutated
+        self.family_param_vectors[:, 1:, :] += (
             torch.randn(
-                self.n_parents,
-                self.n_children_per_parent,
-                self.parent_param_vectors.shape[-1],
+                self.family_param_vectors.shape[0],
+                self.family_param_vectors.shape[1] - 1,
+                self.family_param_vectors.shape[2],
                 device=self.device,
             )
             * self.sigma
         )
 
-    def load_individual_into_model(self, parent_idx: int, mutation_idx: Optional[int]):
-        if mutation_idx is None:
-            individual_param_vector = self.parent_param_vectors[parent_idx]
-        else:
-            individual_param_vector = (
-                self.parent_param_vectors[parent_idx] + self.mutations[parent_idx][mutation_idx]
-            )
+    def load_individual_into_model(self, family_idx: int, member_idx: int):
+        # An individual is identified by its family_idx and member_idx within that family
+        individual_param_vector = self.family_param_vectors[family_idx][member_idx]
 
         nn.utils.vector_to_parameters(individual_param_vector, self.model.parameters())
 
     def step(self, losses: torch.Tensor):
-        # losses of shape n_parents x (n_children_per_parent + 1)
-        # index (p, -1) is assumed to be the loss for the parent itself
-        normalized_losses = (losses - losses.mean()) / losses.std()  # keep this for now
-        flat_normalized_losses = normalized_losses.flatten()
-        # TODO use normal sorting instead of topk?
-        _, flat_indices = flat_normalized_losses.topk(self.n_parents, largest=False)
-        rows = flat_indices // losses.shape[1]
-        cols = flat_indices % losses.shape[1]
-        full_indices = torch.stack([rows, cols], dim=1)
+        # losses of shape n_families x (n_members_per_family)
+        normalized_losses = (losses - losses.mean()) / losses.std()
 
-        new_parent_param_vectors = torch.zeros_like(self.parent_param_vectors)
-        for i, full_idx in enumerate(full_indices):
-            # if is parent
-            if full_idx[1] == self.n_children_per_parent:
-                new_parent_param_vectors[i] = self.parent_param_vectors[full_idx[0]]
-            else:
-                new_parent_param_vectors[i] = (
-                    self.parent_param_vectors[full_idx[0]] + self.mutations[tuple(full_idx)]
-                )
+        # get the flat indices of the lowest losses
+        _, flat_indices = normalized_losses.flatten().topk(
+            self.n_families, largest=False, sorted=True
+        )
 
-        self.parent_param_vectors = new_parent_param_vectors
-        nn.utils.vector_to_parameters(self.parent_param_vectors[0], self.model.parameters())
+        # select the parents according to the flat_indices, new_parents of shape n_families x num_params
+        new_parents = self.family_param_vectors.flatten(0, 1)[flat_indices,]
+
+        # unsqueezing turns into n_families x 1 x num_params. Then repeat along the 2nd dimension
+        self.family_param_vectors = new_parents.unsqueeze(1).repeat(1, self.members_per_family, 1)
