@@ -11,6 +11,7 @@ import loggers
 @dataclass
 class Evaluator1Config:
     device: torch.device
+    dtype: torch.dtype
     do_log_models: bool
 
 
@@ -37,7 +38,10 @@ class Evaluator1:
 
     def eval_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         x, y = batch
-        x, y = x.to(self.config.device), y.to(self.config.device)
+        x, y = (
+            x.to(device=self.config.device, dtype=self.config.dtype),
+            y.to(self.config.device, dtype=self.config.dtype),
+        )
 
         y_hat = self.model(x)
         loss = self.criterion(y_hat, y)
@@ -53,7 +57,7 @@ class Evaluator1:
     def eval_epoch(self, epoch: int):
         """Validate the current model"""
         self.model.eval()
-        self.model.to(self.config.device)
+        self.model.to(device=self.config.device, dtype=self.config.dtype)
 
         losses = torch.zeros(len(self.dataloader))
         total_preds = torch.zeros(len(self.dataloader))

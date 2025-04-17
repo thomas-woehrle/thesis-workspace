@@ -11,6 +11,7 @@ class OpenAIEvolutionaryOptimizer:
         model: nn.Module,
         use_antithetic_sampling: bool,
         device: torch.device,
+        dtype: torch.dtype,
     ):
         self.popsize = popsize
         self.sigma = sigma
@@ -20,6 +21,7 @@ class OpenAIEvolutionaryOptimizer:
         self.params_vector = nn.utils.parameters_to_vector(model.parameters())
         self._epsilon = torch.zeros(popsize, len(self.params_vector))
         self.device = device
+        self.dtype = dtype
 
     def prepare_mutations(self):
         """Creates new epsilon. Epsilon is of shape popsize * num_params"""
@@ -28,11 +30,13 @@ class OpenAIEvolutionaryOptimizer:
 
             # This seemingly weird direct assignment to self._epsilon is done to not waste RAM
             self._epsilon = torch.randn(
-                self.popsize // 2, len(self.params_vector), device=self.device
+                self.popsize // 2, len(self.params_vector), device=self.device, dtype=self.dtype
             )
             self._epsilon = torch.concatenate([self._epsilon, -self._epsilon], dim=0)
         else:
-            self._epsilon = torch.randn(self.popsize, len(self.params_vector), device=self.device)
+            self._epsilon = torch.randn(
+                self.popsize, len(self.params_vector), device=self.device, dtype=self.dtype
+            )
 
     def load_mutation_into_model(self, mutation_idx: int):
         candidate_vector = self.params_vector + self._epsilon[mutation_idx] * self.sigma
@@ -56,6 +60,7 @@ class SimpleEvolutionaryOptimizer:
         sigma: float,
         model: nn.Module,
         device: torch.device,
+        dtype: torch.dtype,
     ):
         self.n_families = n_families
         self.members_per_family = members_per_family
@@ -66,6 +71,7 @@ class SimpleEvolutionaryOptimizer:
             n_families, members_per_family, 1
         )
         self.device = device
+        self.dtype = dtype
 
     def mutate(self):
         # parents, ie the first member of each family should not be mutated
@@ -75,6 +81,7 @@ class SimpleEvolutionaryOptimizer:
                 self.family_param_vectors.shape[1] - 1,
                 self.family_param_vectors.shape[2],
                 device=self.device,
+                dtype=self.dtype,
             )
             * self.sigma
         )
