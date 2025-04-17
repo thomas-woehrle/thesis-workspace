@@ -15,6 +15,7 @@ import optimizers
 @dataclass
 class TrainerConfig:
     device: torch.device
+    dtype: torch.dtype
 
 
 class Trainer[ConfigType: TrainerConfig](ABC):
@@ -26,27 +27,31 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         config: ConfigType,
     ):
         self.model = model
+        self.model.to(device=config.device, dtype=config.dtype)
         self.dataloader = dataloader
         self.logger = logger
         self.config = config
 
     @abstractmethod
-    def train_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor | float:
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         """Can return float or tensor. Tensor should be preferred if train_epoch uses it as tensor anyway,
         which will often be the case. Reason is that the .item() conversion blocks the GPU for a very short piece of time."""
         raise NotImplementedError()
 
     def train_epoch(self, epoch: int):
         self.model.train()
-        self.model.to(self.config.device)
+        self.model.to(device=self.config.device, dtype=self.config.dtype)
 
         losses = torch.zeros(len(self.dataloader))
         for batch_idx, batch in enumerate(
             tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
         ):
-            losses[batch_idx] = self.train_step(batch, batch_idx)
+            x, y = batch
+            x, y = (
+                x.to(device=self.config.device, dtype=self.config.dtype),
+                y.to(device=self.config.device, dtype=self.config.dtype),
+            )
+            losses[batch_idx] = self.train_step(x, y, batch_idx)
 
         self.logger.log({"train/loss": losses.mean().item()}, epoch)
 
@@ -73,7 +78,6 @@ class LRSchedulerConfig:
 
 @dataclass
 class NormalTrainerConfig(TrainerConfig):
-    device: torch.device
     optimizer_config: OptimizerConfig
     lr_scheduler_config: LRSchedulerConfig
 
@@ -142,12 +146,7 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         self.lr_scheduler = get_lr_scheduler(self.optimizer, config.lr_scheduler_config)
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor | float:
-        x, y = batch
-        x, y = x.to(self.config.device), y.to(self.config.device)
-
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         self.optimizer.zero_grad()
 
         y_hat = self.model(x)
@@ -182,24 +181,19 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
         logger: loggers.Logger,
         config: OpenAIEvolutionaryTrainerConfig,
     ):
-        model.to(config.device)
         super().__init__(model, dataloader, logger, config)
         self.optimizer = optimizers.OpenAIEvolutionaryOptimizer(
             config.popsize,
             config.sigma,
             config.lr,
-            model,
+            self.model,
             config.use_antithetic_sampling,
             config.device,
+            config.dtype,
         )
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor | float:
-        x, y = batch
-        x, y = x.to(self.config.device), y.to(self.config.device)
-
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         self.optimizer.prepare_mutations()
         losses = torch.zeros(self.config.popsize, device=self.config.device)
 
@@ -233,19 +227,18 @@ class SimpleEvolutionaryTrainer(Trainer[SimpleEvolutionaryTrainerConfig]):
         logger: loggers.Logger,
         config: SimpleEvolutionaryTrainerConfig,
     ):
-        model.to(config.device)
         super().__init__(model, dataloader, logger, config)
         self.optimizer = optimizers.SimpleEvolutionaryOptimizer(
-            config.n_families, config.members_per_family, config.sigma, model, config.device
+            config.n_families,
+            config.members_per_family,
+            config.sigma,
+            self.model,
+            config.device,
+            config.dtype,
         )
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor | float:
-        x, y = batch
-        x, y = x.to(self.config.device), y.to(self.config.device)
-
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         self.optimizer.mutate()
 
         losses = torch.zeros(self.optimizer.n_families, self.optimizer.members_per_family)

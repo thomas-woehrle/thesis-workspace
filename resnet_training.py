@@ -182,8 +182,9 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
         config_dict = yaml.safe_load(f)
 
     # Handle device creation
-    device = torch.device(config_dict.pop("device"))
     wandb_project = config_dict.pop("wandb_project")
+    device = torch.device(config_dict.pop("device"))
+    dtype = getattr(torch, config_dict.pop("dtype"))
 
     # Handle TrainerConfig
     trainer_config_dict = config_dict.pop("trainer_config")
@@ -191,11 +192,11 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
     # TODO
     if config_dict["trainer_slug"] == "openai_evolutionary_trainer":
         trainer_config = trainers.OpenAIEvolutionaryTrainerConfig(
-            device=device, **trainer_config_dict
+            device=device, dtype=dtype, **trainer_config_dict
         )
     elif config_dict["trainer_slug"] == "simple_evolutionary_trainer":
         trainer_config = trainers.SimpleEvolutionaryTrainerConfig(
-            device=device, **trainer_config_dict
+            device=device, dtype=dtype, **trainer_config_dict
         )
     elif config_dict["trainer_slug"] == "backprop_trainer":
         # Handle nested NormalTrainerConfig parts
@@ -205,14 +206,15 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
         )
 
         trainer_config = trainers.NormalTrainerConfig(
-            device=device,  # From above
+            device=device,
+            dtype=dtype,
             optimizer_config=optimizer_config,
             lr_scheduler_config=lr_scheduler_config,
         )
 
     # Handle EvaluatorConfig
     evaluator_config = evaluators.Evaluator1Config(
-        device=device, **config_dict.pop("evaluator_config")
+        device=device, dtype=dtype, **config_dict.pop("evaluator_config")
     )
 
     # Create main TrainingConfig
