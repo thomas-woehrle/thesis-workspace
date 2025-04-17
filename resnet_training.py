@@ -153,6 +153,14 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
     else:
         raise ValueError(f"Model {training_config.model_slug} is not supported")
 
+    model.to(
+        device=training_config.trainer_config.device, dtype=training_config.trainer_config.dtype
+    )
+    if training_config.trainer_config.device == torch.device("mps"):
+        model.compile(backend="aot_eager")
+    else:
+        model.compile()
+
     # Get logger
     logger = loggers.Logger(wandb_run)
 
@@ -189,7 +197,6 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
     # Handle TrainerConfig
     trainer_config_dict = config_dict.pop("trainer_config")
 
-    # TODO
     if config_dict["trainer_slug"] == "openai_evolutionary_trainer":
         trainer_config = trainers.OpenAIEvolutionaryTrainerConfig(
             device=device, dtype=dtype, **trainer_config_dict
