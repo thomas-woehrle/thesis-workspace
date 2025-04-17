@@ -31,7 +31,11 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         self.config = config
 
     @abstractmethod
-    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
+    def train_step(
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor | float:
+        """Can return float or tensor. Tensor should be preferred if train_epoch uses it as tensor anyway,
+        which will often be the case. Reason is that the .item() conversion blocks the GPU for a very short piece of time."""
         raise NotImplementedError()
 
     def train_epoch(self, epoch: int):
@@ -138,7 +142,9 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         self.lr_scheduler = get_lr_scheduler(self.optimizer, config.lr_scheduler_config)
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def train_step(
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor | float:
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -150,7 +156,7 @@ class NormalTrainer(Trainer[NormalTrainerConfig]):
         loss.backward()
         self.optimizer.step()
 
-        return loss.item()
+        return loss
 
     def train_epoch(self, epoch: int):
         super().train_epoch(epoch)
@@ -188,7 +194,9 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
         )
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+    def train_step(
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor | float:
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -201,7 +209,7 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
             losses[i] = self.criterion(y_hat, y)
 
         self.optimizer.step(losses)
-        return losses.mean().item()
+        return losses.mean()
 
     @torch.no_grad()
     def train_epoch(self, epoch: int):
@@ -232,7 +240,9 @@ class SimpleEvolutionaryTrainer(Trainer[SimpleEvolutionaryTrainerConfig]):
         )
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> float:
+    def train_step(
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor | float:
         x, y = batch
         x, y = x.to(self.config.device), y.to(self.config.device)
 
@@ -247,7 +257,7 @@ class SimpleEvolutionaryTrainer(Trainer[SimpleEvolutionaryTrainerConfig]):
 
         self.optimizer.step(losses)
 
-        return losses.mean().item()
+        return losses.mean()
 
     @torch.no_grad()
     def train_epoch(self, epoch: int):
