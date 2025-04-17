@@ -48,8 +48,8 @@ class Trainer[ConfigType: TrainerConfig](ABC):
         ):
             x, y = batch
             x, y = (
-                x.to(device=self.config.device, dtype=self.config.dtype),
-                y.to(device=self.config.device, dtype=self.config.dtype),
+                x.to(device=self.config.device, dtype=self.config.dtype, non_blocking=True),
+                y.to(device=self.config.device, dtype=self.config.dtype, non_blocking=True),
             )
             losses[batch_idx] = self.train_step(x, y, batch_idx)
 
