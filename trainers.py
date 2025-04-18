@@ -47,9 +47,10 @@ class Trainer[ConfigType: TrainerConfig](ABC):
             tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
         ):
             x, y = batch
+            # x should be desired dtype, y should be long
             x, y = (
                 x.to(device=self.config.device, dtype=self.config.dtype, non_blocking=True),
-                y.to(device=self.config.device, dtype=self.config.dtype, non_blocking=True),
+                y.to(device=self.config.device, dtype=torch.long, non_blocking=True),
             )
             losses[batch_idx] = self.train_step(x, y, batch_idx)
 
