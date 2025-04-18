@@ -40,7 +40,7 @@ class Evaluator1:
         x, y = batch
         x, y = (
             x.to(device=self.config.device, dtype=self.config.dtype),
-            y.to(self.config.device, dtype=self.config.dtype),
+            y.to(device=self.config.device, dtype=torch.long),
         )
 
         y_hat = self.model(x)
