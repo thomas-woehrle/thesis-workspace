@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from torch._functorch.functional_call import functional_call
+from torch._functorch.apis import vmap
 
 
 class OpenAIEvolutionaryOptimizer:
@@ -41,6 +43,25 @@ class OpenAIEvolutionaryOptimizer:
     def load_mutation_into_model(self, mutation_idx: int):
         candidate_vector = self.params_vector + self._epsilon[mutation_idx] * self.sigma
         nn.utils.vector_to_parameters(candidate_vector, self.model.parameters())
+
+    def parallel_forward_pass(self, x):
+        batched_flat_params = self.params_vector + self.sigma * self._epsilon
+        batched_flat_params_split = batched_flat_params.split(
+            [p.numel() for p in self.model.parameters()], dim=1
+        )
+
+        batched_named_params = {
+            n: batched_flat_p.view(self.popsize, *p.shape)
+            for (n, p), batched_flat_p in zip(
+                self.model.named_parameters(), batched_flat_params_split
+            )
+        }
+
+        def forward_pass(named_params):
+            return functional_call(self.model, named_params, (x,))
+
+        batched_forward_pass = vmap(forward_pass)
+        return batched_forward_pass(batched_named_params)
 
     def step(self, losses: torch.Tensor):
         # losses of shape popsize x 1

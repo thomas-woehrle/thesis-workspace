@@ -4,8 +4,10 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import tqdm
+from torch._functorch.apis import vmap
 from torch.utils.data import DataLoader
 
 import loggers
@@ -192,16 +194,13 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
             config.device,
             config.dtype,
         )
-        self.criterion = nn.CrossEntropyLoss()
+        self.multi_criterion = vmap(F.cross_entropy, in_dims=(0, None))
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         self.optimizer.prepare_mutations()
-        losses = torch.zeros(self.config.popsize, device=self.config.device)
+        y_hat = self.optimizer.parallel_forward_pass(x)
 
-        for i in range(self.config.popsize):
-            self.optimizer.load_mutation_into_model(i)
-            y_hat = self.model(x)
-            losses[i] = self.criterion(y_hat, y)
+        losses = self.multi_criterion(y_hat, y)
 
         self.optimizer.step(losses)
         return losses.mean()
