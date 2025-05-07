@@ -20,6 +20,9 @@ class OpenAIEvolutionaryOptimizer:
         self.lr = lr
         self.use_antithetic_sampling = use_antithetic_sampling
         self.model = model
+        self.batched_named_buffers = {
+            n: b.repeat(self.popsize, 1) for n, b in self.model.named_buffers()
+        }
         self.params_vector = nn.utils.parameters_to_vector(model.parameters())
         self._epsilon = torch.zeros(popsize, len(self.params_vector))
         self.device = device
@@ -57,11 +60,11 @@ class OpenAIEvolutionaryOptimizer:
             )
         }
 
-        def forward_pass(named_params):
-            return functional_call(self.model, named_params, (x,))
+        def forward_pass(named_params, named_buffers):
+            return functional_call(self.model, (named_params, named_buffers), (x,))
 
-        batched_forward_pass = vmap(forward_pass)
-        return batched_forward_pass(batched_named_params)
+        batched_forward_pass = vmap(forward_pass, in_dims=(0, 0))
+        return batched_forward_pass(batched_named_params, self.batched_named_buffers)
 
     def step(self, losses: torch.Tensor):
         # losses of shape popsize x 1
