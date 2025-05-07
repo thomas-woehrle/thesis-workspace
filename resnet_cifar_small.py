@@ -39,7 +39,8 @@ import torch.nn.init as init
 
 __all__ = ["ResNet", "resnet20", "resnet32", "resnet44", "resnet56", "resnet110", "resnet1202"]
 
-BN_TRACK_RUNNING_STATS = False
+
+BN_TRACK_RUNNING_STATS = True
 
 
 def _weights_init(m):
