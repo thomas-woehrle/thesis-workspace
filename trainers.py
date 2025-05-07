@@ -174,6 +174,7 @@ class OpenAIEvolutionaryTrainerConfig(TrainerConfig):
     sigma: float
     lr: float
     use_antithetic_sampling: bool
+    use_parallel_forward_pass: bool
 
 
 class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
@@ -194,13 +195,23 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
             config.device,
             config.dtype,
         )
+        self.criterion = nn.CrossEntropyLoss()
         self.multi_criterion = vmap(F.cross_entropy, in_dims=(0, None))
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         self.optimizer.prepare_mutations()
-        y_hat = self.optimizer.parallel_forward_pass(x)
 
-        losses = self.multi_criterion(y_hat, y)
+        if self.config.use_parallel_forward_pass:
+            y_hat = self.optimizer.parallel_forward_pass(x)
+
+            losses = self.multi_criterion(y_hat, y)
+        else:
+            losses = torch.zeros(self.config.popsize, device=self.config.device)
+
+            for i in range(self.config.popsize):
+                self.optimizer.load_mutation_into_model(i)
+                y_hat = self.model(x)
+                losses[i] = self.criterion(y_hat, y)
 
         self.optimizer.step(losses)
         return losses.mean()
