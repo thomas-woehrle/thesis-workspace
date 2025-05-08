@@ -75,6 +75,11 @@ class OpenAIEvolutionaryOptimizer:
         self.params_vector -= self.lr * g_hat
         nn.utils.vector_to_parameters(self.params_vector, self.model.parameters())
 
+    def get_current_buffers(self) -> dict[str, torch.Tensor]:
+        # return the first of the batched buffers for each
+        # does not make a difference, because all of the batched individuals get to see the same input
+        return {n: b[0] for n, b in self.batched_named_buffers.items()}
+
 
 class SimpleEvolutionaryOptimizer:
     def __init__(
