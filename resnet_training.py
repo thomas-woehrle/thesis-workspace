@@ -88,6 +88,7 @@ class TrainingConfig:
     use_img_transforms: bool
     model_slug: str
     bn_track_running_stats: bool
+    use_instance_norm: bool
     num_workers: int = 0
     use_data_subset: bool = False
     is_cifar10: bool = False
@@ -149,8 +150,9 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
     # Get model
     if training_config.model_slug == "small_resnet20":
         model = resnet_cifar_small.resnet20(
-            bn_track_running_stats=training_config.bn_track_running_stats,
             nb_cls=10 if training_config.is_cifar10 else 100,
+            use_instance_norm=training_config.use_instance_norm,
+            bn_track_running_stats=training_config.bn_track_running_stats,
         )
     elif training_config.model_slug == "resnet18":
         model = resnet_cifar.ResNet18(nb_cls=10 if training_config.is_cifar10 else 100)
