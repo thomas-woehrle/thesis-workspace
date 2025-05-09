@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from typing import Callable
 
 import torch
 import torch.nn as nn
@@ -6,13 +6,6 @@ import tqdm
 from torch.utils.data import DataLoader
 
 import loggers
-
-
-@dataclass
-class Evaluator1Config:
-    device: torch.device
-    dtype: torch.dtype
-    do_log_models: bool
 
 
 def get_num_topk_correct_preds(batch_logits: torch.Tensor, batch_target: torch.Tensor, topk: int):
@@ -26,21 +19,25 @@ class Evaluator1:
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        config: Evaluator1Config,
+        criterion: Callable,
+        device: torch.device,
+        dtype: torch.dtype,
+        do_log_models: bool,
         logger: loggers.Logger,
     ):
         self.model = model
         self.dataloader = dataloader
-        self.criterion = nn.CrossEntropyLoss()
-
-        self.config = config
+        self.criterion = criterion
+        self.device = device
+        self.dtype = dtype
+        self.do_log_models = do_log_models
         self.logger = logger
 
     def eval_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         x, y = batch
         x, y = (
-            x.to(device=self.config.device, dtype=self.config.dtype),
-            y.to(device=self.config.device, dtype=torch.long),
+            x.to(device=self.device, dtype=self.dtype),
+            y.to(device=self.device, dtype=torch.long),
         )
 
         y_hat = self.model(x)
@@ -57,7 +54,7 @@ class Evaluator1:
     def eval_epoch(self, epoch: int):
         """Validate the current model"""
         self.model.eval()
-        self.model.to(device=self.config.device, dtype=self.config.dtype)
+        self.model.to(device=self.device, dtype=self.dtype)
 
         losses = torch.zeros(len(self.dataloader))
         total_preds = torch.zeros(len(self.dataloader))
@@ -87,5 +84,5 @@ class Evaluator1:
             epoch,
         )
         self.logger.log({"val/loss": losses.mean().item()}, epoch)
-        if self.config.do_log_models:
+        if self.do_log_models:
             self.logger.log_model(self.model)

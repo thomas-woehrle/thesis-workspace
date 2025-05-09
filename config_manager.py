@@ -8,10 +8,12 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
+import evaluators
 import loggers
 import resnet_cifar_small
 import resnet_cifar
 import trainers
+
 
 # --- Data ---
 
@@ -81,15 +83,12 @@ def get_cifar_dataloader(config: DataConfig, is_train: bool) -> DataLoader:
     return dataloader
 
 
-# ------
-
-
 # --- Model ---
 
 
 @dataclass
 class ModelConfig:
-    MODEL_SLUG: bool
+    MODEL_SLUG: str
     USE_INSTANCE_NORM: bool
     BN_TRACK_RUNNING_STATS: bool
 
@@ -103,11 +102,10 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
         )
     elif config.MODEL_SLUG == "resnet18":
         model = resnet_cifar.ResNet18(nb_cls=10 if is_cifar10 else 100)
+    else:
+        raise ValueError(f"Model {config.MODEL_SLUG} is not supported")
 
     return model
-
-
-# ------
 
 
 # --- Trainer ---
@@ -151,9 +149,6 @@ def get_trainer(
         raise ValueError(f"Trainer {config.TRAINER_SLUG} is not supported")
 
 
-# ------
-
-
 # --- Optimizer ---
 
 
@@ -189,47 +184,94 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
         raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")
 
 
-# ------
-
-
 # --- LR Scheduler ---
 
 
 @dataclass
 class LRSchedulerConfig:
-    lr_scheduler_slug: Optional[str]
-    lr_scheduler_slug: Optional[str]
-    T_max: Optional[int] = None
-    eta_min: Optional[float] = None
-    milestones: Optional[list[int]] = None
-    gamma: Optional[float] = None
+    LR_SCHEDULER_SLUG: Optional[str]
+    T_MAX: Optional[int] = None
+    ETA_MIN: Optional[float] = None
+    MILESTONES: Optional[list[int]] = None
+    GAMMA: Optional[float] = None
 
 
 def get_lr_scheduler(
     optimizer: optim.Optimizer, scheduler_config: LRSchedulerConfig
 ) -> Optional[optim.lr_scheduler.LRScheduler]:
-    if scheduler_config.lr_scheduler_slug is None:
+    if scheduler_config.LR_SCHEDULER_SLUG is None:
         return None
-    elif scheduler_config.lr_scheduler_slug == "cosine_annealing":
-        assert scheduler_config.eta_min is not None
-        assert scheduler_config.T_max is not None
+    elif scheduler_config.LR_SCHEDULER_SLUG == "cosine_annealing":
+        assert scheduler_config.ETA_MIN is not None
+        assert scheduler_config.T_MAX is not None
         return optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, scheduler_config.T_max, scheduler_config.eta_min
+            optimizer, scheduler_config.T_MAX, scheduler_config.ETA_MIN
         )
-    elif scheduler_config.lr_scheduler_slug == "multi_step":
-        assert scheduler_config.milestones is not None
-        assert scheduler_config.gamma is not None
+    elif scheduler_config.LR_SCHEDULER_SLUG == "multi_step":
+        assert scheduler_config.MILESTONES is not None
+        assert scheduler_config.GAMMA is not None
         return optim.lr_scheduler.MultiStepLR(
-            optimizer, scheduler_config.milestones, scheduler_config.gamma
+            optimizer, scheduler_config.MILESTONES, scheduler_config.GAMMA
         )
-    elif scheduler_config.lr_scheduler_slug == "multi_step":
-        assert scheduler_config.milestones is not None
-        assert scheduler_config.gamma is not None
+    elif scheduler_config.LR_SCHEDULER_SLUG == "multi_step":
+        assert scheduler_config.MILESTONES is not None
+        assert scheduler_config.GAMMA is not None
         return optim.lr_scheduler.MultiStepLR(
-            optimizer, scheduler_config.milestones, scheduler_config.gamma
+            optimizer, scheduler_config.MILESTONES, scheduler_config.GAMMA
         )
     else:
-        raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
+        raise ValueError(f"LR scheduler {scheduler_config.LR_SCHEDULER_SLUG} is not supported")
 
 
-# ------
+# --- Evaluator
+
+
+@dataclass
+class EvaluatorConfig:
+    DO_LOG_MODELS: bool
+
+
+def get_evaluator(
+    config: EvaluatorConfig,
+    model: nn.Module,
+    dataloader: DataLoader,
+    device: torch.device,
+    dtype: torch.dtype,
+    logger: loggers.Logger,
+) -> evaluators.Evaluator1:
+    criterion = nn.CrossEntropyLoss()
+    return evaluators.Evaluator1(
+        model=model,
+        dataloader=dataloader,
+        criterion=criterion,
+        device=device,
+        dtype=dtype,
+        do_log_models=config.DO_LOG_MODELS,
+        logger=logger,
+    )
+
+
+# --- TOP Level ---
+
+
+@dataclass
+class TopLevelConfig:
+    WANDB_PROJECT: str
+    DEVICE: torch.device
+    DTYPE: torch.dtype
+    SEED: Optional[int]
+    NUM_EPOCHS: int
+
+
+# --- Complete ---
+
+
+@dataclass
+class CompleteConfig:
+    top_level_config: TopLevelConfig
+    data_config: DataConfig
+    model_config: ModelConfig
+    trainer_config: TrainerConfig
+    optimizer_config: OptimizerConfig
+    lr_scheduler_config: LRSchedulerConfig
+    evaluator_config: EvaluatorConfig
