@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from torch._functorch.functional_call import functional_call
+from torch._functorch.apis import vmap
 
 
 class OpenAIEvolutionaryOptimizer:
@@ -18,6 +20,9 @@ class OpenAIEvolutionaryOptimizer:
         self.lr = lr
         self.use_antithetic_sampling = use_antithetic_sampling
         self.model = model
+        self.batched_named_buffers = {
+            n: b.repeat(self.popsize, 1) for n, b in self.model.named_buffers()
+        }
         self.params_vector = nn.utils.parameters_to_vector(model.parameters())
         self._epsilon = torch.zeros(popsize, len(self.params_vector))
         self.device = device
@@ -42,6 +47,26 @@ class OpenAIEvolutionaryOptimizer:
         candidate_vector = self.params_vector + self._epsilon[mutation_idx] * self.sigma
         nn.utils.vector_to_parameters(candidate_vector, self.model.parameters())
 
+    def parallel_forward_pass(self, x: torch.Tensor):
+        # broadcasting '+' operation expands this to shape (popsize, num_params)
+        batched_flat_params = self.params_vector + self.sigma * self._epsilon
+        batched_flat_params_split = batched_flat_params.split(
+            [p.numel() for p in self.model.parameters()], dim=1
+        )
+
+        batched_named_params = {
+            n: batched_flat_p.view(self.popsize, *p.shape)
+            for (n, p), batched_flat_p in zip(
+                self.model.named_parameters(), batched_flat_params_split
+            )
+        }
+
+        def forward_pass(named_params, named_buffers):
+            return functional_call(self.model, (named_params, named_buffers), (x,))
+
+        batched_forward_pass = vmap(forward_pass, in_dims=(0, 0))
+        return batched_forward_pass(batched_named_params, self.batched_named_buffers)
+
     def step(self, losses: torch.Tensor):
         # losses of shape popsize x 1
         # estimate gradients
@@ -50,6 +75,11 @@ class OpenAIEvolutionaryOptimizer:
         g_hat = g_hat / (self.popsize * self.sigma)
         self.params_vector -= self.lr * g_hat
         nn.utils.vector_to_parameters(self.params_vector, self.model.parameters())
+
+    def get_current_buffers(self) -> dict[str, torch.Tensor]:
+        # return the first of the batched buffers for each
+        # does not make a difference, because all of the batched individuals get to see the same input
+        return {n: b[0] for n, b in self.batched_named_buffers.items()}
 
 
 class SimpleEvolutionaryOptimizer:

@@ -87,6 +87,8 @@ class TrainingConfig:
     batch_size: int
     use_img_transforms: bool
     model_slug: str
+    bn_track_running_stats: bool
+    use_instance_norm: bool
     num_workers: int = 0
     use_data_subset: bool = False
     is_cifar10: bool = False
@@ -147,7 +149,11 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
 
     # Get model
     if training_config.model_slug == "small_resnet20":
-        model = resnet_cifar_small.resnet20(nb_cls=10 if training_config.is_cifar10 else 100)
+        model = resnet_cifar_small.resnet20(
+            nb_cls=10 if training_config.is_cifar10 else 100,
+            use_instance_norm=training_config.use_instance_norm,
+            bn_track_running_stats=training_config.bn_track_running_stats,
+        )
     elif training_config.model_slug == "resnet18":
         model = resnet_cifar.ResNet18(nb_cls=10 if training_config.is_cifar10 else 100)
     else:
@@ -193,17 +199,25 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
     wandb_project = config_dict.pop("wandb_project")
     device = torch.device(config_dict.pop("device"))
     dtype = getattr(torch, config_dict.pop("dtype"))
+    # .get and not .pop because used at multiple levels: not just trainer also model
+    bn_track_running_stats = config_dict.get("bn_track_running_stats")
 
     # Handle TrainerConfig
     trainer_config_dict = config_dict.pop("trainer_config")
 
     if config_dict["trainer_slug"] == "openai_evolutionary_trainer":
         trainer_config = trainers.OpenAIEvolutionaryTrainerConfig(
-            device=device, dtype=dtype, **trainer_config_dict
+            device=device,
+            dtype=dtype,
+            bn_track_running_stats=bn_track_running_stats,
+            **trainer_config_dict,
         )
     elif config_dict["trainer_slug"] == "simple_evolutionary_trainer":
         trainer_config = trainers.SimpleEvolutionaryTrainerConfig(
-            device=device, dtype=dtype, **trainer_config_dict
+            device=device,
+            dtype=dtype,
+            bn_track_running_stats=bn_track_running_stats,
+            **trainer_config_dict,
         )
     elif config_dict["trainer_slug"] == "backprop_trainer":
         # Handle nested NormalTrainerConfig parts
@@ -215,6 +229,7 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
         trainer_config = trainers.NormalTrainerConfig(
             device=device,
             dtype=dtype,
+            bn_track_running_stats=bn_track_running_stats,
             optimizer_config=optimizer_config,
             lr_scheduler_config=lr_scheduler_config,
         )

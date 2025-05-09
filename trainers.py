@@ -4,8 +4,10 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import tqdm
+from torch._functorch.apis import vmap
 from torch.utils.data import DataLoader
 
 import loggers
@@ -16,6 +18,7 @@ import optimizers
 class TrainerConfig:
     device: torch.device
     dtype: torch.dtype
+    bn_track_running_stats: bool
 
 
 class Trainer[ConfigType: TrainerConfig](ABC):
@@ -172,6 +175,7 @@ class OpenAIEvolutionaryTrainerConfig(TrainerConfig):
     sigma: float
     lr: float
     use_antithetic_sampling: bool
+    use_parallel_forward_pass: bool
 
 
 class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
@@ -193,22 +197,34 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
             config.dtype,
         )
         self.criterion = nn.CrossEntropyLoss()
+        self.multi_criterion = vmap(F.cross_entropy, in_dims=(0, None))
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
         self.optimizer.prepare_mutations()
-        losses = torch.zeros(self.config.popsize, device=self.config.device)
 
-        for i in range(self.config.popsize):
-            self.optimizer.load_mutation_into_model(i)
-            y_hat = self.model(x)
-            losses[i] = self.criterion(y_hat, y)
+        if self.config.use_parallel_forward_pass:
+            y_hat = self.optimizer.parallel_forward_pass(x)
+
+            losses = self.multi_criterion(y_hat, y)
+        else:
+            losses = torch.zeros(self.config.popsize, device=self.config.device)
+
+            for i in range(self.config.popsize):
+                self.optimizer.load_mutation_into_model(i)
+                y_hat = self.model(x)
+                losses[i] = self.criterion(y_hat, y)
 
         self.optimizer.step(losses)
         return losses.mean()
 
     @torch.no_grad()
     def train_epoch(self, epoch: int):
-        return super().train_epoch(epoch)
+        super().train_epoch(epoch)
+
+        if self.config.use_parallel_forward_pass and self.config.bn_track_running_stats:
+            # load buffers into model, only necessary to do this manually in the case of parallel pass
+            named_buffers = self.optimizer.get_current_buffers()
+            self.model.load_state_dict(named_buffers, strict=False)
 
 
 @dataclass
