@@ -1,13 +1,17 @@
 from dataclasses import dataclass
 from typing import Optional
 
+import torch
 import torch.nn as nn
+import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
+import loggers
 import resnet_cifar_small
 import resnet_cifar
+import trainers
 
 # --- Data ---
 
@@ -101,6 +105,131 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
         model = resnet_cifar.ResNet18(nb_cls=10 if is_cifar10 else 100)
 
     return model
+
+
+# ------
+
+
+# --- Trainer ---
+
+
+@dataclass
+class TrainerConfig:
+    TRAINER_SLUG: str
+
+
+def get_trainer(
+    config: TrainerConfig,
+    model: nn.Module,
+    dataloader: DataLoader,
+    logger: loggers.Logger,
+    optimizer: optim.Optimizer,
+    lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
+    device: torch.device,
+    dtype: torch.dtype,
+) -> trainers.Trainer:
+    criterion = nn.CrossEntropyLoss()
+
+    if config.TRAINER_SLUG == "backprop_trainer":
+        return trainers.NormalTrainer(
+            model=model,
+            dataloader=dataloader,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            criterion=criterion,
+            device=device,
+            dtype=dtype,
+            logger=logger,
+        )
+    # elif trainer_slug == "openai_evolutionary_trainer":
+    #     assert isinstance(trainerConfig, trainers.OpenAIEvolutionaryTrainerConfig)
+    #     return trainers.OpenAIEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
+    # elif trainer_slug == "simple_evolutionary_trainer":
+    #     assert isinstance(trainerConfig, trainers.SimpleEvolutionaryTrainerConfig)
+    #     return trainers.SimpleEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
+    else:
+        raise ValueError(f"Trainer {config.TRAINER_SLUG} is not supported")
+
+
+# ------
+
+
+# --- Optimizer ---
+
+
+@dataclass
+class OptimizerConfig:
+    OPTIMIZER_SLUG: str
+    LR: float
+    WEIGHT_DECAY: float = 0.0
+    MOMENTUM: float = 0.0
+
+
+def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
+    if config.OPTIMIZER_SLUG == "sgd":
+        return optim.SGD(
+            model.parameters(),
+            lr=config.LR,
+            momentum=config.MOMENTUM,
+            weight_decay=config.WEIGHT_DECAY,
+        )
+    elif config.OPTIMIZER_SLUG == "adam":
+        return optim.Adam(
+            model.parameters(),
+            lr=config.LR,
+            weight_decay=config.WEIGHT_DECAY,
+        )
+    elif config.OPTIMIZER_SLUG == "adamw":
+        return optim.AdamW(
+            model.parameters(),
+            lr=config.LR,
+            weight_decay=config.WEIGHT_DECAY,
+        )
+    else:
+        raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")
+
+
+# ------
+
+
+# --- LR Scheduler ---
+
+
+@dataclass
+class LRSchedulerConfig:
+    lr_scheduler_slug: Optional[str]
+    lr_scheduler_slug: Optional[str]
+    T_max: Optional[int] = None
+    eta_min: Optional[float] = None
+    milestones: Optional[list[int]] = None
+    gamma: Optional[float] = None
+
+
+def get_lr_scheduler(
+    optimizer: optim.Optimizer, scheduler_config: LRSchedulerConfig
+) -> Optional[optim.lr_scheduler.LRScheduler]:
+    if scheduler_config.lr_scheduler_slug is None:
+        return None
+    elif scheduler_config.lr_scheduler_slug == "cosine_annealing":
+        assert scheduler_config.eta_min is not None
+        assert scheduler_config.T_max is not None
+        return optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, scheduler_config.T_max, scheduler_config.eta_min
+        )
+    elif scheduler_config.lr_scheduler_slug == "multi_step":
+        assert scheduler_config.milestones is not None
+        assert scheduler_config.gamma is not None
+        return optim.lr_scheduler.MultiStepLR(
+            optimizer, scheduler_config.milestones, scheduler_config.gamma
+        )
+    elif scheduler_config.lr_scheduler_slug == "multi_step":
+        assert scheduler_config.milestones is not None
+        assert scheduler_config.gamma is not None
+        return optim.lr_scheduler.MultiStepLR(
+            optimizer, scheduler_config.milestones, scheduler_config.gamma
+        )
+    else:
+        raise ValueError(f"LR scheduler {scheduler_config.lr_scheduler_slug} is not supported")
 
 
 # ------
