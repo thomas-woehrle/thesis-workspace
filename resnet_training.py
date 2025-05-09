@@ -87,7 +87,7 @@ class TrainingConfig:
     batch_size: int
     use_img_transforms: bool
     model_slug: str
-    track_bn_running_stats: bool
+    bn_track_running_stats: bool
     num_workers: int = 0
     use_data_subset: bool = False
     is_cifar10: bool = False
@@ -149,7 +149,7 @@ def run_training(training_config: TrainingConfig, wandb_run: Optional[wandb.wand
     # Get model
     if training_config.model_slug == "small_resnet20":
         model = resnet_cifar_small.resnet20(
-            track_bn_running_stats=training_config.track_bn_running_stats,
+            bn_track_running_stats=training_config.bn_track_running_stats,
             nb_cls=10 if training_config.is_cifar10 else 100,
         )
     elif training_config.model_slug == "resnet18":
@@ -198,7 +198,7 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
     device = torch.device(config_dict.pop("device"))
     dtype = getattr(torch, config_dict.pop("dtype"))
     # .get and not .pop because used at multiple levels: not just trainer also model
-    track_bn_running_stats = config_dict.get("track_bn_running_stats")
+    bn_track_running_stats = config_dict.get("bn_track_running_stats")
 
     # Handle TrainerConfig
     trainer_config_dict = config_dict.pop("trainer_config")
@@ -207,14 +207,14 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
         trainer_config = trainers.OpenAIEvolutionaryTrainerConfig(
             device=device,
             dtype=dtype,
-            track_bn_running_stats=track_bn_running_stats,
+            bn_track_running_stats=bn_track_running_stats,
             **trainer_config_dict,
         )
     elif config_dict["trainer_slug"] == "simple_evolutionary_trainer":
         trainer_config = trainers.SimpleEvolutionaryTrainerConfig(
             device=device,
             dtype=dtype,
-            track_bn_running_stats=track_bn_running_stats,
+            bn_track_running_stats=bn_track_running_stats,
             **trainer_config_dict,
         )
     elif config_dict["trainer_slug"] == "backprop_trainer":
@@ -227,7 +227,7 @@ def load_config_from_yaml(config_path: str) -> tuple[TrainingConfig, str]:
         trainer_config = trainers.NormalTrainerConfig(
             device=device,
             dtype=dtype,
-            track_bn_running_stats=track_bn_running_stats,
+            bn_track_running_stats=bn_track_running_stats,
             optimizer_config=optimizer_config,
             lr_scheduler_config=lr_scheduler_config,
         )

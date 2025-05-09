@@ -18,7 +18,7 @@ import optimizers
 class TrainerConfig:
     device: torch.device
     dtype: torch.dtype
-    track_bn_running_stats: bool
+    bn_track_running_stats: bool
 
 
 class Trainer[ConfigType: TrainerConfig](ABC):
@@ -221,7 +221,7 @@ class OpenAIEvolutionaryTrainer(Trainer[OpenAIEvolutionaryTrainerConfig]):
     def train_epoch(self, epoch: int):
         super().train_epoch(epoch)
 
-        if self.config.use_parallel_forward_pass and self.config.track_bn_running_stats:
+        if self.config.use_parallel_forward_pass and self.config.bn_track_running_stats:
             # load buffers into model, only necessary to do this manually in the case of parallel pass
             named_buffers = self.optimizer.get_current_buffers()
             self.model.load_state_dict(named_buffers, strict=False)

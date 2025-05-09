@@ -62,14 +62,14 @@ class LambdaLayer(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, in_planes, planes, track_bn_running_stats, stride=1, option="A"):
+    def __init__(self, in_planes, planes, bn_track_running_stats, stride=1, option="A"):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(
             in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
-        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=track_bn_running_stats)
+        self.bn1 = nn.BatchNorm2d(planes, track_running_stats=bn_track_running_stats)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=track_bn_running_stats)
+        self.bn2 = nn.BatchNorm2d(planes, track_running_stats=bn_track_running_stats)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
@@ -88,7 +88,7 @@ class BasicBlock(nn.Module):
                         in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False
                     ),
                     nn.BatchNorm2d(
-                        self.expansion * planes, track_running_stats=track_bn_running_stats
+                        self.expansion * planes, track_running_stats=bn_track_running_stats
                     ),
                 )
 
@@ -101,24 +101,24 @@ class BasicBlock(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, track_bn_running_stats, num_classes=10):
+    def __init__(self, block, num_blocks, bn_track_running_stats, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 16
 
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16, track_running_stats=track_bn_running_stats)
-        self.layer1 = self._make_layer(block, 16, num_blocks[0], track_bn_running_stats, stride=1)
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], track_bn_running_stats, stride=2)
-        self.layer3 = self._make_layer(block, 64, num_blocks[2], track_bn_running_stats, stride=2)
+        self.bn1 = nn.BatchNorm2d(16, track_running_stats=bn_track_running_stats)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], bn_track_running_stats, stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], bn_track_running_stats, stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], bn_track_running_stats, stride=2)
         self.linear = nn.Linear(64, num_classes)
 
         self.apply(_weights_init)
 
-    def _make_layer(self, block, planes, num_blocks, track_bn_running_stats, stride):
+    def _make_layer(self, block, planes, num_blocks, bn_track_running_stats, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, track_bn_running_stats, stride))
+            layers.append(block(self.in_planes, planes, bn_track_running_stats, stride))
             self.in_planes = planes * block.expansion
 
         return nn.Sequential(*layers)
@@ -134,8 +134,8 @@ class ResNet(nn.Module):
         return out
 
 
-def resnet20(track_bn_running_stats: bool, nb_cls: int):
-    return ResNet(BasicBlock, [3, 3, 3], track_bn_running_stats, num_classes=nb_cls)
+def resnet20(bn_track_running_stats: bool, nb_cls: int):
+    return ResNet(BasicBlock, [3, 3, 3], bn_track_running_stats, num_classes=nb_cls)
 
 
 # def resnet32():

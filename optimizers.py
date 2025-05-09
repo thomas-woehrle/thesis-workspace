@@ -48,6 +48,7 @@ class OpenAIEvolutionaryOptimizer:
         nn.utils.vector_to_parameters(candidate_vector, self.model.parameters())
 
     def parallel_forward_pass(self, x: torch.Tensor):
+        # broadcasting '+' operation expands this to shape (popsize, num_params)
         batched_flat_params = self.params_vector + self.sigma * self._epsilon
         batched_flat_params_split = batched_flat_params.split(
             [p.numel() for p in self.model.parameters()], dim=1
