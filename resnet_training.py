@@ -16,7 +16,6 @@ def run_training(
     model_config: config.ModelConfig,
     optimizer_config: config.OptimizerConfig,
     lr_scheduler_config: config.LRSchedulerConfig,
-    trainer_config: config.TrainerConfig,
     evaluatorConfig: config.EvaluatorConfig,
     wand_run: wandb.wandb_run.Run,
 ):
@@ -48,7 +47,6 @@ def run_training(
 
     # Get trainer
     trainer = config.get_trainer(
-        config=trainer_config,
         model=model,
         dataloader=train_dataloader,
         logger=logger,
@@ -91,7 +89,6 @@ if __name__ == "__main__":
             model_config=run_config.model_config,
             optimizer_config=run_config.optimizer_config,
             lr_scheduler_config=run_config.lr_scheduler_config,
-            trainer_config=run_config.trainer_config,
             evaluatorConfig=run_config.evaluator_config,
             wand_run=wandb_run,
         )

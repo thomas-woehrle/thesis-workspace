@@ -113,13 +113,7 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
 # --- Trainer ---
 
 
-@dataclass
-class TrainerConfig:
-    TRAINER_SLUG: str
-
-
 def get_trainer(
-    config: TrainerConfig,
     model: nn.Module,
     dataloader: DataLoader,
     logger: loggers.Logger,
@@ -130,8 +124,8 @@ def get_trainer(
 ) -> trainers.Trainer:
     criterion = nn.CrossEntropyLoss()
 
-    if config.TRAINER_SLUG == "backprop_trainer":
-        return trainers.NormalTrainer(
+    if isinstance(optimizer, optimizers.EvolutionaryOptimizer):
+        return trainers.EvolutionaryTrainer(
             model=model,
             dataloader=dataloader,
             optimizer=optimizer,
@@ -141,9 +135,8 @@ def get_trainer(
             dtype=dtype,
             logger=logger,
         )
-    elif config.TRAINER_SLUG == "openai_evolutionary_trainer":
-        assert isinstance(optimizer, optimizers.OpenAIEvolutionaryOptimizer)
-        return trainers.OpenAIEvolutionaryTrainer(
+    else:
+        return trainers.BackpropagationTrainer(
             model=model,
             dataloader=dataloader,
             optimizer=optimizer,
@@ -156,8 +149,6 @@ def get_trainer(
     # elif trainer_slug == "simple_evolutionary_trainer":
     #     assert isinstance(trainerConfig, trainers.SimpleEvolutionaryTrainerConfig)
     #     return trainers.SimpleEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
-    else:
-        raise ValueError(f"Trainer {config.TRAINER_SLUG} is not supported")
 
 
 # --- Optimizer ---
@@ -300,5 +291,4 @@ class RunConfig:
     model_config: ModelConfig
     optimizer_config: OptimizerConfig
     lr_scheduler_config: LRSchedulerConfig
-    trainer_config: TrainerConfig
     evaluator_config: EvaluatorConfig

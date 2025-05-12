@@ -60,7 +60,7 @@ class Trainer(ABC):
         self.logger.log({"train/loss": losses.mean().item()}, epoch)
 
 
-class NormalTrainer(Trainer):
+class BackpropagationTrainer(Trainer):
     optimizer: optim.Optimizer
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
@@ -80,15 +80,6 @@ class NormalTrainer(Trainer):
         if self.lr_scheduler:
             self.logger.log({"debug/lr": self.lr_scheduler.get_last_lr()[0]}, epoch)
             self.lr_scheduler.step()
-
-
-# @dataclass
-# class OpenAIEvolutionaryTrainerConfig(TrainerConfig):
-#     popsize: int
-#     sigma: float
-#     lr: float
-#     use_antithetic_sampling: bool
-#     use_parallel_forward_pass: bool
 
 
 class EvolutionaryTrainer(Trainer):
@@ -148,58 +139,6 @@ class EvolutionaryTrainer(Trainer):
         # load buffers into model, only necessary to do this manually in the case of parallel pass
         named_buffers = self.optimizer.get_current_buffers()
         self.model.load_state_dict(named_buffers, strict=False)
-
-
-class OpenAIEvolutionaryTrainer(EvolutionaryTrainer):
-    def __init__(
-        self,
-        model: nn.Module,
-        dataloader: DataLoader,
-        optimizer: optimizers.EvolutionaryOptimizer,
-        lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
-        criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-        device: torch.device,
-        dtype: torch.dtype,
-        logger: loggers.Logger,
-    ):
-        super().__init__(
-            model=model,
-            dataloader=dataloader,
-            optimizer=optimizer,
-            lr_scheduler=lr_scheduler,
-            criterion=criterion,
-            device=device,
-            dtype=dtype,
-            logger=logger,
-        )
-        self.multi_criterion = torch.vmap(self.criterion, in_dims=(0, None))
-
-    # def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
-    #     self.optimizer.prepare_mutations()
-
-    #     if self.config.use_parallel_forward_pass:
-    #         y_hat = self.optimizer.parallel_forward_pass(x)
-
-    #         losses = self.multi_criterion(y_hat, y)
-    #     else:
-    #         losses = torch.zeros(self.config.popsize, device=self.config.device)
-
-    #         for i in range(self.config.popsize):
-    #             self.optimizer.load_mutation_into_model(i)
-    #             y_hat = self.model(x)
-    #             losses[i] = self.criterion(y_hat, y)
-
-    #     self.optimizer.step(losses)
-    #     return losses.mean()
-
-    # @torch.no_grad()
-    # def train_epoch(self, epoch: int):
-    #     super().train_epoch(epoch)
-
-    #     if self.config.use_parallel_forward_pass and self.config.bn_track_running_stats:
-    #         # load buffers into model, only necessary to do this manually in the case of parallel pass
-    #         named_buffers = self.optimizer.get_current_buffers()
-    #         self.model.load_state_dict(named_buffers, strict=False)
 
 
 # @dataclass
