@@ -54,7 +54,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         # losses of shape popsize x 1
         # estimate gradients
         normalized_losses = (losses - losses.mean()) / losses.std()
-        g_hat = (mutations.T @ normalized_losses).flatten()
+        g_hat = ((mutations.T / self.sigma) @ normalized_losses).flatten()
         g_hat = g_hat / (self.popsize * self.sigma)
         self.flat_params -= self.lr * g_hat
         nn.utils.vector_to_parameters(self.flat_params, self.params)
@@ -84,7 +84,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
                 dtype=self.flat_params.dtype,
             )
 
-        mutated_flat_params = self.flat_params * mutations
+        mutated_flat_params = self.flat_params + mutations
 
         batched_mutated_flat_params_split = mutated_flat_params.split(
             [p.numel() for p in self.model.parameters()], dim=1
