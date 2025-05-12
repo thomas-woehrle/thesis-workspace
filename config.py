@@ -8,8 +8,10 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Subset
 
+
 import evaluators
 import loggers
+import optimizers
 import resnet_cifar_small
 import resnet_cifar
 import trainers
@@ -139,9 +141,18 @@ def get_trainer(
             dtype=dtype,
             logger=logger,
         )
-    # elif trainer_slug == "openai_evolutionary_trainer":
-    #     assert isinstance(trainerConfig, trainers.OpenAIEvolutionaryTrainerConfig)
-    #     return trainers.OpenAIEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
+    elif config.TRAINER_SLUG == "openai_evolutionary_trainer":
+        assert isinstance(optimizer, optimizers.OpenAIEvolutionaryOptimizer)
+        return trainers.OpenAIEvolutionaryTrainer(
+            model=model,
+            dataloader=dataloader,
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
+            criterion=criterion,
+            device=device,
+            dtype=dtype,
+            logger=logger,
+        )
     # elif trainer_slug == "simple_evolutionary_trainer":
     #     assert isinstance(trainerConfig, trainers.SimpleEvolutionaryTrainerConfig)
     #     return trainers.SimpleEvolutionaryTrainer(model, dataloader, logger, trainerConfig)
@@ -156,11 +167,17 @@ def get_trainer(
 class OptimizerConfig:
     OPTIMIZER_SLUG: str
     LR: float
+    POPSIZE: Optional[int] = None
+    SIGMA: Optional[float] = None
+    USE_ANTITHETIC_SAMPLING: Optional[bool] = False
+    USE_PARALLEL_FORWARD_PASS: Optional[bool] = False
     WEIGHT_DECAY: float = 0.0
     MOMENTUM: float = 0.0
 
 
-def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
+def get_optimizer(
+    config: OptimizerConfig, model: nn.Module, device: torch.device, dtype: torch.dtype
+) -> optim.Optimizer:
     if config.OPTIMIZER_SLUG == "sgd":
         return optim.SGD(
             model.parameters(),
@@ -179,6 +196,20 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             model.parameters(),
             lr=config.LR,
             weight_decay=config.WEIGHT_DECAY,
+        )
+    elif config.OPTIMIZER_SLUG == "openai_evolutionary_optimizer":
+        assert config.POPSIZE is not None
+        assert config.SIGMA is not None
+        assert config.USE_ANTITHETIC_SAMPLING is not None
+        assert config.USE_PARALLEL_FORWARD_PASS is not None
+        return optimizers.OpenAIEvolutionaryOptimizer(
+            popsize=config.POPSIZE,
+            sigma=config.SIGMA,
+            lr=config.LR,
+            model=model,
+            use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+            device=device,
+            dtype=dtype,
         )
     else:
         raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")
