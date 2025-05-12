@@ -6,10 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 import tqdm
 from torch.utils.data import DataLoader
-
-import optimizers
-import loggers
 from torch._functorch.apis import vmap
+
+import loggers
+import optimizers
+import utils
 
 
 class Trainer(ABC):
@@ -17,7 +18,7 @@ class Trainer(ABC):
         self,
         model: nn.Module,
         dataloader: DataLoader,
-        optimizer: optim.Optimizer | optimizers.EvolutionaryOptimizer,
+        optimizer: optim.Optimizer,
         lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
         criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
         device: torch.device,
@@ -92,7 +93,7 @@ class NormalTrainer(Trainer):
 
 class EvolutionaryTrainer(Trainer):
     # TODO change to EvolutionaryOptimizer
-    optimizer: optimizers.OpenAIEvolutionaryOptimizer
+    optimizer: optimizers.EvolutionaryOptimizer
 
     def __init__(
         self,
@@ -118,10 +119,14 @@ class EvolutionaryTrainer(Trainer):
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
-        self.optimizer.prepare_mutations()
+        new_generation_params, new_generation_buffers, mutations = (
+            self.optimizer.get_new_generation()
+        )
 
         # if self.config.use_parallel_forward_pass:
-        y_hat = self.optimizer.parallel_forward_pass(x)
+        y_hat = utils.parallel_forward_pass(
+            self.model, (new_generation_params, new_generation_buffers), x
+        )
 
         losses = self.batched_criterion(y_hat, y)
         # else:
@@ -132,7 +137,7 @@ class EvolutionaryTrainer(Trainer):
         #         y_hat = self.model(x)
         #         losses[i] = self.criterion(y_hat, y)
 
-        self.optimizer.step(losses)
+        self.optimizer.step(losses, mutations)
         return losses.mean()
 
     @torch.no_grad()

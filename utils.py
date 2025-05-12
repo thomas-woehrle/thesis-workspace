@@ -4,13 +4,15 @@ import random
 
 import numpy as np
 import torch
+import torch.nn as nn
 import yaml
+from torch._functorch.functional_call import functional_call
+from torch._functorch.apis import vmap
 
 import config
-from config import RunConfig
 
 
-def load_config_from_file(file_path: str) -> RunConfig:
+def load_config_from_file(file_path: str) -> "config.RunConfig":
     with open(file_path, "r") as f:
         config_dict = yaml.safe_load(f)
 
@@ -27,7 +29,7 @@ def load_config_from_file(file_path: str) -> RunConfig:
     trainer_config = config.TrainerConfig(**config_dict.get("TRAINER_CONFIG", {}))
     evaluator_config = config.EvaluatorConfig(**config_dict.get("EVALUATOR_CONFIG", {}))
 
-    return RunConfig(
+    return config.RunConfig(
         general_config=general_config,
         model_config=model_config,
         data_config=data_config,
@@ -45,3 +47,15 @@ def seed_everything(seed: int):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def parallel_forward_pass(
+    model: nn.Module,
+    batched_parameter_and_buffer_dicts: tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]],
+    x: torch.Tensor,
+):
+    def forward_pass(parameter_and_buffer_dicts):
+        return functional_call(model, (parameter_and_buffer_dicts), (x,))
+
+    batched_forward_pass = vmap(forward_pass)
+    return batched_forward_pass(batched_parameter_and_buffer_dicts)
