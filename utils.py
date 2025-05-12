@@ -59,3 +59,7 @@ def parallel_forward_pass(
 
     batched_forward_pass = vmap(forward_pass)
     return batched_forward_pass(batched_parameter_and_buffer_dicts)
+
+
+def get_not_supported_message(kind: str, not_supported_slug: str):
+    return f"{kind} with slug {not_supported_slug} is not supported..."
