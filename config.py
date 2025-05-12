@@ -206,7 +206,6 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             popsize=config.POPSIZE,
             sigma=config.SIGMA,
             lr=config.LR,
-            model=model,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
         )
     else:

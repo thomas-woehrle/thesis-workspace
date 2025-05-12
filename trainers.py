@@ -114,17 +114,35 @@ class EvolutionaryTrainer(Trainer):
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
+        self.batched_named_buffers = {
+            n: b.repeat(self.optimizer.popsize, 1) for n, b in self.model.named_buffers()
+        }
+
+    def _get_batched_named_params(self, batched_flat_params: torch.Tensor, popsize: int):
+        batched_flat_params_split = batched_flat_params.split(
+            [p.numel() for p in self.model.parameters()], dim=1
+        )
+
+        batched_named_params = {
+            n: batched_flat_p.view(popsize, *p.shape)
+            for (n, p), batched_flat_p in zip(
+                self.model.named_parameters(), batched_flat_params_split
+            )
+        }
+
+        return batched_named_params
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
-        new_generation_params, new_generation_buffers, mutations, mutated_flat_params = (
-            self.optimizer.get_new_generation()
+        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
+        mutated_batched_named_params = self._get_batched_named_params(
+            mutated_batched_flat_params, self.optimizer.popsize
         )
 
         popsize = mutations.shape[0]
 
         if self.use_parallel_forward_pass:
             y_hat = utils.parallel_forward_pass(
-                self.model, (new_generation_params, new_generation_buffers), x
+                self.model, (mutated_batched_named_params, self.batched_named_buffers), x
             )
             losses = self.batched_criterion(y_hat, y)
 
@@ -132,7 +150,9 @@ class EvolutionaryTrainer(Trainer):
             losses = torch.zeros(popsize, device=self.device)
 
             for i in range(popsize):
-                nn.utils.vector_to_parameters(mutated_flat_params[i], self.model.parameters())
+                nn.utils.vector_to_parameters(
+                    mutated_batched_flat_params[i], self.model.parameters()
+                )
                 y_hat = self.model(x)
                 losses[i] = self.criterion(y_hat, y)
 
@@ -148,7 +168,7 @@ class EvolutionaryTrainer(Trainer):
             and not self.use_instance_norm
             and self.bn_track_running_stats
         ):
-            named_buffers = self.optimizer.get_current_buffers()
+            named_buffers = {n: b[0] for n, b in self.batched_named_buffers.items()}
             self.model.load_state_dict(named_buffers, strict=False)
 
 

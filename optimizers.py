@@ -19,15 +19,11 @@ class EvolutionaryOptimizer(ABC, optim.Optimizer):
     @abstractmethod
     def get_new_generation(
         self,
-    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         pass
 
     @abstractmethod
     def step(self, losses: torch.Tensor, mutations: torch.Tensor):
-        pass
-
-    @abstractmethod
-    def get_current_buffers(self) -> dict[str, torch.Tensor]:
         pass
 
 
@@ -39,38 +35,14 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         popsize: int,
         sigma: float,
         use_antithetic_sampling: bool,
-        model: nn.Module,
     ):
         super().__init__(params, lr, popsize)
         self.popsize = popsize
         self.sigma = sigma
         self.use_antithetic_sampling = use_antithetic_sampling
-        self.model = model
+        self.flat_params = nn.utils.parameters_to_vector(self.params)
 
-        self.flat_params = nn.utils.parameters_to_vector(model.parameters())
-        self.batched_named_buffers = {
-            n: b.repeat(self.popsize, 1) for n, b in self.model.named_buffers()
-        }
-
-    # def load_mutation_into_model(self, mutation_idx: int):
-    #     candidate_vector = self.params_vector + self._epsilon[mutation_idx] * self.sigma
-    #     nn.utils.vector_to_parameters(candidate_vector, self.model.parameters())
-    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
-        # losses of shape popsize x 1
-        # estimate gradients
-        normalized_losses = (losses - losses.mean()) / losses.std()
-        g_hat = ((mutations.T / self.sigma) @ normalized_losses).flatten()
-        g_hat = g_hat / (self.popsize * self.sigma)
-        self.flat_params -= self.lr * g_hat
-        nn.utils.vector_to_parameters(self.flat_params, self.params)
-
-    # TODO load into model directly during step (?)
-    def get_current_buffers(self) -> dict[str, torch.Tensor]:
-        # return the first of the batched buffers for each
-        # does not make a difference, because all of the batched individuals get to see the same input
-        return {n: b[0] for n, b in self.batched_named_buffers.items()}
-
-    def get_new_generation(self):
+    def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
         if self.use_antithetic_sampling:
             assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
 
@@ -89,25 +61,19 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
                 dtype=self.flat_params.dtype,
             )
 
-        mutated_flat_params = self.flat_params + mutations
+        # '+' operation broadcasts to (popsize, num_params)
+        batched_mutated_flat_params = self.flat_params + mutations
 
-        batched_mutated_flat_params_split = mutated_flat_params.split(
-            [p.numel() for p in self.params], dim=1
-        )
+        return batched_mutated_flat_params, mutations
 
-        batched_mutated_named_params = {
-            n: batched_flat_p.view(self.popsize, *p.shape)
-            for (n, p), batched_flat_p in zip(
-                self.model.named_parameters(), batched_mutated_flat_params_split
-            )
-        }
-
-        return (
-            batched_mutated_named_params,
-            self.batched_named_buffers,
-            mutations,
-            mutated_flat_params,
-        )
+    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
+        # losses of shape popsize x 1
+        # estimate gradients
+        normalized_losses = (losses - losses.mean()) / losses.std()
+        g_hat = ((mutations.T / self.sigma) @ normalized_losses).flatten()
+        g_hat = g_hat / (self.popsize * self.sigma)
+        self.flat_params -= self.lr * g_hat
+        nn.utils.vector_to_parameters(self.flat_params, self.params)
 
 
 class SimpleEvolutionaryOptimizer:
