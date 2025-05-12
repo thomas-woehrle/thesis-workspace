@@ -11,12 +11,10 @@ class EvolutionaryOptimizer(ABC, optim.Optimizer):
         params: Iterable[torch.Tensor],
         lr: float,
         popsize: int,
-        use_parallel_forward_pass: bool,
     ):
         self.params = list(params)
         self.lr = lr
         self.popsize = popsize
-        self.use_parallel_forward_pass = use_parallel_forward_pass
 
     @abstractmethod
     def get_new_generation(
@@ -39,12 +37,11 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         params: Iterable[torch.Tensor],
         lr: float,
         popsize: int,
-        use_parallel_forward_pass,
         sigma: float,
         use_antithetic_sampling: bool,
         model: nn.Module,
     ):
-        super().__init__(params, lr, popsize, use_parallel_forward_pass)
+        super().__init__(params, lr, popsize)
         self.popsize = popsize
         self.sigma = sigma
         self.use_antithetic_sampling = use_antithetic_sampling
@@ -95,7 +92,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         mutated_flat_params = self.flat_params + mutations
 
         batched_mutated_flat_params_split = mutated_flat_params.split(
-            [p.numel() for p in self.model.parameters()], dim=1
+            [p.numel() for p in self.params], dim=1
         )
 
         batched_mutated_named_params = {

@@ -14,9 +14,10 @@ def run_training(
     general_config: config.GeneralConfig,
     data_config: config.DataConfig,
     model_config: config.ModelConfig,
+    trainer_config: config.TrainerConfig,
     optimizer_config: config.OptimizerConfig,
     lr_scheduler_config: config.LRSchedulerConfig,
-    evaluatorConfig: config.EvaluatorConfig,
+    evaluator_config: config.EvaluatorConfig,
     wand_run: wandb.wandb_run.Run,
 ):
     # Seed
@@ -45,12 +46,12 @@ def run_training(
 
     # Get trainer
     trainer = config.get_trainer(
+        config=trainer_config,
         model=model,
         dataloader=train_dataloader,
         logger=logger,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
-        use_parallel_forward_pass=optimizer_config.USE_PARALLEL_FORWARD_PASS,
         use_instance_norm=model_config.USE_INSTANCE_NORM,
         bn_track_running_stats=model_config.BN_TRACK_RUNNING_STATS,
         device=general_config.DEVICE,
@@ -59,7 +60,7 @@ def run_training(
 
     # Get evaluator
     evaluator = config.get_evaluator(
-        config=evaluatorConfig,
+        config=evaluator_config,
         model=model,
         dataloader=val_dataloader,
         device=general_config.DEVICE,
@@ -87,9 +88,10 @@ if __name__ == "__main__":
         run_training(
             general_config=run_config.general_config,
             data_config=run_config.data_config,
+            trainer_config=run_config.trainer_config,
             model_config=run_config.model_config,
             optimizer_config=run_config.optimizer_config,
             lr_scheduler_config=run_config.lr_scheduler_config,
-            evaluatorConfig=run_config.evaluator_config,
+            evaluator_config=run_config.evaluator_config,
             wand_run=wandb_run,
         )

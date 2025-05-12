@@ -113,13 +113,18 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
 # --- Trainer ---
 
 
+@dataclass
+class TrainerConfig:
+    USE_PARALLEL_FORWARD_PASS: Optional[bool] = False
+
+
 def get_trainer(
+    config: TrainerConfig,
     model: nn.Module,
     dataloader: DataLoader,
     logger: loggers.Logger,
     optimizer: optim.Optimizer,
     lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
-    use_parallel_forward_pass: Optional[bool],
     use_instance_norm: bool,
     bn_track_running_stats: bool,
     device: torch.device,
@@ -128,14 +133,14 @@ def get_trainer(
     criterion = nn.CrossEntropyLoss()
 
     if isinstance(optimizer, optimizers.EvolutionaryOptimizer):
-        assert use_parallel_forward_pass is not None
+        assert config.USE_PARALLEL_FORWARD_PASS is not None
         return trainers.EvolutionaryTrainer(
             model=model,
             dataloader=dataloader,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             criterion=criterion,
-            use_parallel_forward_pass=use_parallel_forward_pass,
+            use_parallel_forward_pass=config.USE_PARALLEL_FORWARD_PASS,
             bn_track_running_stats=bn_track_running_stats,
             use_instance_norm=use_instance_norm,
             device=device,
@@ -168,7 +173,6 @@ class OptimizerConfig:
     POPSIZE: Optional[int] = None
     SIGMA: Optional[float] = None
     USE_ANTITHETIC_SAMPLING: Optional[bool] = False
-    USE_PARALLEL_FORWARD_PASS: Optional[bool] = False
     WEIGHT_DECAY: float = 0.0
     MOMENTUM: float = 0.0
 
@@ -197,7 +201,6 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
         assert config.POPSIZE is not None
         assert config.SIGMA is not None
         assert config.USE_ANTITHETIC_SAMPLING is not None
-        assert config.USE_PARALLEL_FORWARD_PASS is not None
         return optimizers.OpenAIEvolutionaryOptimizer(
             model.parameters(),
             popsize=config.POPSIZE,
@@ -205,7 +208,6 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             lr=config.LR,
             model=model,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
-            use_parallel_forward_pass=config.USE_PARALLEL_FORWARD_PASS,
         )
     else:
         raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")
@@ -295,6 +297,7 @@ class RunConfig:
     general_config: GeneralConfig
     data_config: DataConfig
     model_config: ModelConfig
+    trainer_config: TrainerConfig
     optimizer_config: OptimizerConfig
     lr_scheduler_config: LRSchedulerConfig
     evaluator_config: EvaluatorConfig
