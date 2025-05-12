@@ -14,6 +14,7 @@ import loggers
 import optimizers
 import resnet_cifar_small
 import resnet_cifar
+import utils
 import trainers
 
 
@@ -105,7 +106,7 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
     elif config.MODEL_SLUG == "resnet18":
         model = resnet_cifar.ResNet18(nb_cls=10 if is_cifar10 else 100)
     else:
-        raise ValueError(f"Model {config.MODEL_SLUG} is not supported")
+        raise ValueError(utils.get_not_supported_message("Model", config.MODEL_SLUG))
 
     return model
 
@@ -205,7 +206,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
         )
     else:
-        raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")
+        raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))
 
 
 # --- LR Scheduler ---
@@ -221,30 +222,24 @@ class LRSchedulerConfig:
 
 
 def get_lr_scheduler(
-    optimizer: optim.Optimizer, scheduler_config: LRSchedulerConfig
+    optimizer: optim.Optimizer, config: LRSchedulerConfig
 ) -> Optional[optim.lr_scheduler.LRScheduler]:
-    if scheduler_config.LR_SCHEDULER_SLUG is None:
+    if config.LR_SCHEDULER_SLUG is None:
         return None
-    elif scheduler_config.LR_SCHEDULER_SLUG == "cosine_annealing":
-        assert scheduler_config.ETA_MIN is not None
-        assert scheduler_config.T_MAX is not None
-        return optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, scheduler_config.T_MAX, scheduler_config.ETA_MIN
-        )
-    elif scheduler_config.LR_SCHEDULER_SLUG == "multi_step":
-        assert scheduler_config.MILESTONES is not None
-        assert scheduler_config.GAMMA is not None
-        return optim.lr_scheduler.MultiStepLR(
-            optimizer, scheduler_config.MILESTONES, scheduler_config.GAMMA
-        )
-    elif scheduler_config.LR_SCHEDULER_SLUG == "multi_step":
-        assert scheduler_config.MILESTONES is not None
-        assert scheduler_config.GAMMA is not None
-        return optim.lr_scheduler.MultiStepLR(
-            optimizer, scheduler_config.MILESTONES, scheduler_config.GAMMA
-        )
+    elif config.LR_SCHEDULER_SLUG == "cosine_annealing":
+        assert config.ETA_MIN is not None
+        assert config.T_MAX is not None
+        return optim.lr_scheduler.CosineAnnealingLR(optimizer, config.T_MAX, config.ETA_MIN)
+    elif config.LR_SCHEDULER_SLUG == "multi_step":
+        assert config.MILESTONES is not None
+        assert config.GAMMA is not None
+        return optim.lr_scheduler.MultiStepLR(optimizer, config.MILESTONES, config.GAMMA)
+    elif config.LR_SCHEDULER_SLUG == "multi_step":
+        assert config.MILESTONES is not None
+        assert config.GAMMA is not None
+        return optim.lr_scheduler.MultiStepLR(optimizer, config.MILESTONES, config.GAMMA)
     else:
-        raise ValueError(f"LR scheduler {scheduler_config.LR_SCHEDULER_SLUG} is not supported")
+        raise ValueError(utils.get_not_supported_message("LR Scheduler", config.LR_SCHEDULER_SLUG))
 
 
 # --- Evaluator ---
