@@ -1,3 +1,4 @@
+import sys
 from dataclasses import asdict
 
 import torch
@@ -72,7 +73,12 @@ def run_training(
 
 
 if __name__ == "__main__":
-    run_config = utils.load_config_from_file("run_configs/new_test_config.yaml")
+    if len(sys.argv) != 2:
+        raise ValueError("Usage: python resnet_training.py <path_to_config_file>")
+
+    config_file_path = sys.argv[1]
+
+    run_config = utils.load_config_from_file(config_file_path)
 
     with wandb.init(
         project=run_config.general_config.WANDB_PROJECT, config=asdict(run_config)
