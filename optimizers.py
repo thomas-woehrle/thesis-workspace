@@ -76,57 +76,53 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         nn.utils.vector_to_parameters(self.flat_params, self.params)
 
 
-class SimpleEvolutionaryOptimizer:
+class SimpleEvolutionaryOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
-        n_families: int,
-        members_per_family: int,
+        params: Iterable[torch.Tensor],
+        lr: float,
+        popsize: int,
+        num_families: int,
         sigma: float,
-        model: nn.Module,
-        device: torch.device,
-        dtype: torch.dtype,
     ):
-        self.n_families = n_families
-        self.members_per_family = members_per_family
+        assert popsize % num_families == 0, "popsize must be a multiple of num_families"
+        super().__init__(params, lr, popsize)
+        self.num_families = num_families
+        self.members_per_family = popsize // num_families
         self.sigma = sigma
-        self.model = model
-        # every individual starts with the same parameters
-        self.family_param_vectors = nn.utils.parameters_to_vector(model.parameters()).repeat(
-            n_families, members_per_family, 1
-        )
-        self.device = device
-        self.dtype = dtype
 
-    def mutate(self):
-        # parents, ie the first member of each family should not be mutated
-        self.family_param_vectors[:, 1:, :] += (
+        # every individual starts with the same parameters
+        self.family_flat_params = nn.utils.parameters_to_vector(self.params).repeat(
+            self.num_families, self.members_per_family, 1
+        )
+
+    def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
+        mutations = (
             torch.randn(
-                self.family_param_vectors.shape[0],
-                self.family_param_vectors.shape[1] - 1,
-                self.family_param_vectors.shape[2],
-                device=self.device,
-                dtype=self.dtype,
+                self.num_families,
+                self.members_per_family,
+                self.family_flat_params.shape[2],
+                device=self.family_flat_params.device,
+                dtype=self.family_flat_params.dtype,
             )
             * self.sigma
         )
+        # parents, ie the first member of each family should not be mutated
+        mutations[:, 0, :] = 0
 
-    def load_individual_into_model(self, family_idx: int, member_idx: int):
-        # An individual is identified by its family_idx and member_idx within that family
-        individual_param_vector = self.family_param_vectors[family_idx][member_idx]
+        mutated_batched_flat_params = (self.family_flat_params + mutations).flatten(0, 1)
 
-        nn.utils.vector_to_parameters(individual_param_vector, self.model.parameters())
+        return mutated_batched_flat_params, mutations
 
-    def step(self, losses: torch.Tensor):
-        # losses of shape n_families x (n_members_per_family)
-        normalized_losses = (losses - losses.mean()) / losses.std()
-
+    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
         # get the flat indices of the lowest losses
-        _, flat_indices = normalized_losses.flatten().topk(
-            self.n_families, largest=False, sorted=True
-        )
+        _, flat_indices = losses.flatten().topk(self.num_families, largest=False, sorted=True)
 
         # select the parents according to the flat_indices, new_parents of shape n_families x num_params
-        new_parents = self.family_param_vectors.flatten(0, 1)[flat_indices,]
+        new_parents = self.family_flat_params.flatten(0, 1)[flat_indices,]
 
         # unsqueezing turns into n_families x 1 x num_params. Then repeat along the 2nd dimension
-        self.family_param_vectors = new_parents.unsqueeze(1).repeat(1, self.members_per_family, 1)
+        self.family_flat_params = new_parents.unsqueeze(1).repeat(1, self.members_per_family, 1)
+
+        # load first parent (ie best one) into the params
+        nn.utils.vector_to_parameters(new_parents[0], self.params)
