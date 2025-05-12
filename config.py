@@ -203,13 +203,12 @@ def get_optimizer(
         assert config.USE_ANTITHETIC_SAMPLING is not None
         assert config.USE_PARALLEL_FORWARD_PASS is not None
         return optimizers.OpenAIEvolutionaryOptimizer(
+            model.parameters(),
             popsize=config.POPSIZE,
             sigma=config.SIGMA,
             lr=config.LR,
             model=model,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
-            device=device,
-            dtype=dtype,
         )
     else:
         raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")

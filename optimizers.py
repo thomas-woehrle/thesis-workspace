@@ -3,104 +3,101 @@ from typing import Iterable
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch._functorch.functional_call import functional_call
-from torch._functorch.apis import vmap
 
 
 class EvolutionaryOptimizer(ABC, optim.Optimizer):
     def __init__(self, params: Iterable[torch.Tensor], lr: float, popsize: int):
-        self.params = params
+        self.params = list(params)
         self.lr = lr
         self.popsize = popsize
 
     @abstractmethod
-    def get_generation(self):
+    def get_new_generation(
+        self,
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor]:
         pass
 
     @abstractmethod
-    def step(self, losses: torch.Tensor):
+    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
+        pass
+
+    @abstractmethod
+    def get_current_buffers(self) -> dict[str, torch.Tensor]:
         pass
 
 
 class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
+        params: Iterable[torch.Tensor],
+        lr: float,
         popsize: int,
         sigma: float,
-        lr: float,
-        model: nn.Module,
         use_antithetic_sampling: bool,
-        device: torch.device,
-        dtype: torch.dtype,
+        model: nn.Module,
     ):
+        super().__init__(params, lr, popsize)
         self.popsize = popsize
         self.sigma = sigma
-        self.lr = lr
         self.use_antithetic_sampling = use_antithetic_sampling
         self.model = model
+
+        self.flat_params = nn.utils.parameters_to_vector(model.parameters())
         self.batched_named_buffers = {
             n: b.repeat(self.popsize, 1) for n, b in self.model.named_buffers()
         }
-        self.params_vector = nn.utils.parameters_to_vector(model.parameters())
-        self._epsilon = torch.zeros(popsize, len(self.params_vector))
-        self.device = device
-        self.dtype = dtype
 
-    def prepare_mutations(self):
-        """Creates new epsilon. Epsilon is of shape popsize * num_params"""
-        if self.use_antithetic_sampling:
-            assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
-
-            # This seemingly weird direct assignment to self._epsilon is done to not waste RAM
-            self._epsilon = torch.randn(
-                self.popsize // 2, len(self.params_vector), device=self.device, dtype=self.dtype
-            )
-            self._epsilon = torch.concatenate([self._epsilon, -self._epsilon], dim=0)
-        else:
-            self._epsilon = torch.randn(
-                self.popsize, len(self.params_vector), device=self.device, dtype=self.dtype
-            )
-
-    def load_mutation_into_model(self, mutation_idx: int):
-        candidate_vector = self.params_vector + self._epsilon[mutation_idx] * self.sigma
-        nn.utils.vector_to_parameters(candidate_vector, self.model.parameters())
-
-    def parallel_forward_pass(self, x: torch.Tensor):
-        # broadcasting '+' operation expands this to shape (popsize, num_params)
-        batched_flat_params = self.params_vector + self.sigma * self._epsilon
-        batched_flat_params_split = batched_flat_params.split(
-            [p.numel() for p in self.model.parameters()], dim=1
-        )
-
-        batched_named_params = {
-            n: batched_flat_p.view(self.popsize, *p.shape)
-            for (n, p), batched_flat_p in zip(
-                self.model.named_parameters(), batched_flat_params_split
-            )
-        }
-
-        def forward_pass(named_params, named_buffers):
-            return functional_call(self.model, (named_params, named_buffers), (x,))
-
-        batched_forward_pass = vmap(forward_pass, in_dims=(0, 0))
-        return batched_forward_pass(batched_named_params, self.batched_named_buffers)
-
-    def step(self, losses: torch.Tensor):
+    # def load_mutation_into_model(self, mutation_idx: int):
+    #     candidate_vector = self.params_vector + self._epsilon[mutation_idx] * self.sigma
+    #     nn.utils.vector_to_parameters(candidate_vector, self.model.parameters())
+    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
         # losses of shape popsize x 1
         # estimate gradients
         normalized_losses = (losses - losses.mean()) / losses.std()
-        g_hat = (self._epsilon.T @ normalized_losses).flatten()
+        g_hat = (mutations.T @ normalized_losses).flatten()
         g_hat = g_hat / (self.popsize * self.sigma)
-        self.params_vector -= self.lr * g_hat
-        nn.utils.vector_to_parameters(self.params_vector, self.model.parameters())
+        self.flat_params -= self.lr * g_hat
+        nn.utils.vector_to_parameters(self.flat_params, self.params)
 
+    # TODO load into model directly during step (?)
     def get_current_buffers(self) -> dict[str, torch.Tensor]:
         # return the first of the batched buffers for each
         # does not make a difference, because all of the batched individuals get to see the same input
         return {n: b[0] for n, b in self.batched_named_buffers.items()}
 
-    def get_generation(self):
-        return
+    def get_new_generation(self):
+        if self.use_antithetic_sampling:
+            assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
+
+            mutations = self.sigma * torch.randn(
+                self.popsize // 2,
+                len(self.flat_params),
+                device=self.flat_params.device,
+                dtype=self.flat_params.dtype,
+            )
+            mutations = torch.concatenate([mutations, mutations], dim=0)
+        else:
+            mutations = self.sigma * torch.randn(
+                self.popsize,
+                len(self.flat_params),
+                device=self.flat_params.device,
+                dtype=self.flat_params.dtype,
+            )
+
+        mutated_flat_params = self.flat_params * mutations
+
+        batched_mutated_flat_params_split = mutated_flat_params.split(
+            [p.numel() for p in self.model.parameters()], dim=1
+        )
+
+        batched_mutated_named_params = {
+            n: batched_flat_p.view(self.popsize, *p.shape)
+            for (n, p), batched_flat_p in zip(
+                self.model.named_parameters(), batched_mutated_flat_params_split
+            )
+        }
+
+        return batched_mutated_named_params, self.batched_named_buffers, mutations
 
 
 class SimpleEvolutionaryOptimizer:
