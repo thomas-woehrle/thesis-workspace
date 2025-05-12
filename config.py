@@ -143,8 +143,6 @@ def get_trainer(
             use_parallel_forward_pass=config.USE_PARALLEL_FORWARD_PASS,
             bn_track_running_stats=bn_track_running_stats,
             use_instance_norm=use_instance_norm,
-            device=device,
-            dtype=dtype,
             logger=logger,
         )
     else:
@@ -154,8 +152,6 @@ def get_trainer(
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             criterion=criterion,
-            device=device,
-            dtype=dtype,
             logger=logger,
         )
     # elif trainer_slug == "simple_evolutionary_trainer":
