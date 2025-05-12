@@ -30,8 +30,8 @@ def run_training(
 
     # Get model
     model = config.get_model(model_config, is_cifar10=data_config.IS_CIFAR10)
-
     model.to(device=general_config.DEVICE, dtype=general_config.DTYPE)
+
     if general_config.DEVICE == torch.device("mps"):
         model.compile(backend="aot_eager")
     else:

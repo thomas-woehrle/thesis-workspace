@@ -21,18 +21,13 @@ class Trainer(ABC):
         optimizer: optim.Optimizer,
         lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
         criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-        device: torch.device,
-        dtype: torch.dtype,
         logger: loggers.Logger,
     ):
         self.model = model
-        self.model.to(device=device, dtype=dtype)
         self.dataloader = dataloader
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.criterion = criterion
-        self.device = device
-        self.dtype = dtype
         self.logger = logger
 
     @abstractmethod
@@ -43,7 +38,6 @@ class Trainer(ABC):
 
     def train_epoch(self, epoch: int):
         self.model.train()
-        self.model.to(device=self.device, dtype=self.dtype)
 
         losses = torch.zeros(len(self.dataloader))
         for batch_idx, batch in enumerate(
@@ -52,8 +46,14 @@ class Trainer(ABC):
             x, y = batch
             # x should be desired dtype, y should be long
             x, y = (
-                x.to(device=self.device, dtype=self.dtype, non_blocking=True),
-                y.to(device=self.device, dtype=torch.long, non_blocking=True),
+                x.to(
+                    device=next(self.model.parameters()).device,
+                    dtype=next(self.model.parameters()).dtype,
+                    non_blocking=True,
+                ),
+                y.to(
+                    device=next(self.model.parameters()).device, dtype=torch.long, non_blocking=True
+                ),
             )
             losses[batch_idx] = self.train_step(x, y, batch_idx)
 
@@ -96,8 +96,6 @@ class EvolutionaryTrainer(Trainer):
         use_parallel_forward_pass: bool,
         bn_track_running_stats: bool,
         use_instance_norm: bool,
-        device: torch.device,
-        dtype: torch.dtype,
         logger: loggers.Logger,
     ):
         super().__init__(
@@ -106,8 +104,6 @@ class EvolutionaryTrainer(Trainer):
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             criterion=criterion,
-            device=device,
-            dtype=dtype,
             logger=logger,
         )
         self.use_parallel_forward_pass = use_parallel_forward_pass
@@ -147,7 +143,7 @@ class EvolutionaryTrainer(Trainer):
             losses = self.batched_criterion(y_hat, y)
 
         else:
-            losses = torch.zeros(popsize, device=self.device)
+            losses = torch.zeros(popsize, device=mutated_batched_flat_params.device)
 
             for i in range(popsize):
                 nn.utils.vector_to_parameters(
