@@ -6,15 +6,22 @@ import torch.optim as optim
 
 
 class EvolutionaryOptimizer(ABC, optim.Optimizer):
-    def __init__(self, params: Iterable[torch.Tensor], lr: float, popsize: int):
+    def __init__(
+        self,
+        params: Iterable[torch.Tensor],
+        lr: float,
+        popsize: int,
+        use_parallel_forward_pass: bool,
+    ):
         self.params = list(params)
         self.lr = lr
         self.popsize = popsize
+        self.use_parallel_forward_pass = use_parallel_forward_pass
 
     @abstractmethod
     def get_new_generation(
         self,
-    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor]:
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
         pass
 
     @abstractmethod
@@ -32,11 +39,12 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         params: Iterable[torch.Tensor],
         lr: float,
         popsize: int,
+        use_parallel_forward_pass,
         sigma: float,
         use_antithetic_sampling: bool,
         model: nn.Module,
     ):
-        super().__init__(params, lr, popsize)
+        super().__init__(params, lr, popsize, use_parallel_forward_pass)
         self.popsize = popsize
         self.sigma = sigma
         self.use_antithetic_sampling = use_antithetic_sampling
@@ -97,7 +105,12 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
             )
         }
 
-        return batched_mutated_named_params, self.batched_named_buffers, mutations
+        return (
+            batched_mutated_named_params,
+            self.batched_named_buffers,
+            mutations,
+            mutated_flat_params,
+        )
 
 
 class SimpleEvolutionaryOptimizer:

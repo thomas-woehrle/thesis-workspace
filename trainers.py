@@ -93,6 +93,9 @@ class EvolutionaryTrainer(Trainer):
         optimizer: optimizers.EvolutionaryOptimizer,
         lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
         criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        use_parallel_forward_pass: bool,
+        bn_track_running_stats: bool,
+        use_instance_norm: bool,
         device: torch.device,
         dtype: torch.dtype,
         logger: loggers.Logger,
@@ -107,26 +110,31 @@ class EvolutionaryTrainer(Trainer):
             dtype=dtype,
             logger=logger,
         )
+        self.use_parallel_forward_pass = use_parallel_forward_pass
+        self.bn_track_running_stats = bn_track_running_stats
+        self.use_instance_norm = use_instance_norm
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
-        new_generation_params, new_generation_buffers, mutations = (
+        new_generation_params, new_generation_buffers, mutations, mutated_flat_params = (
             self.optimizer.get_new_generation()
         )
 
-        # if self.config.use_parallel_forward_pass:
-        y_hat = utils.parallel_forward_pass(
-            self.model, (new_generation_params, new_generation_buffers), x
-        )
+        popsize = mutations.shape[0]
 
-        losses = self.batched_criterion(y_hat, y)
-        # else:
-        #     losses = torch.zeros(self.config.popsize, device=self.config.device)
+        if self.use_parallel_forward_pass:
+            y_hat = utils.parallel_forward_pass(
+                self.model, (new_generation_params, new_generation_buffers), x
+            )
+            losses = self.batched_criterion(y_hat, y)
 
-        #     for i in range(self.config.popsize):
-        #         self.optimizer.load_mutation_into_model(i)
-        #         y_hat = self.model(x)
-        #         losses[i] = self.criterion(y_hat, y)
+        else:
+            losses = torch.zeros(popsize, device=self.device)
+
+            for i in range(popsize):
+                nn.utils.vector_to_parameters(mutated_flat_params[i], self.model.parameters())
+                y_hat = self.model(x)
+                losses[i] = self.criterion(y_hat, y)
 
         self.optimizer.step(losses, mutations)
         return losses.mean()
@@ -135,10 +143,13 @@ class EvolutionaryTrainer(Trainer):
     def train_epoch(self, epoch: int):
         super().train_epoch(epoch)
 
-        # if self.config.use_parallel_forward_pass and self.config.bn_track_running_stats:
-        # load buffers into model, only necessary to do this manually in the case of parallel pass
-        named_buffers = self.optimizer.get_current_buffers()
-        self.model.load_state_dict(named_buffers, strict=False)
+        if (
+            self.use_parallel_forward_pass
+            and not self.use_instance_norm
+            and self.bn_track_running_stats
+        ):
+            named_buffers = self.optimizer.get_current_buffers()
+            self.model.load_state_dict(named_buffers, strict=False)
 
 
 # @dataclass

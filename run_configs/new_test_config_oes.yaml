@@ -2,7 +2,7 @@ GENERAL_CONFIG:
   WANDB_PROJECT: "thesis_baseline_testruns"
   DEVICE: "cpu"
   DTYPE: float32
-  SEED: null
+  SEED: 0
   NUM_EPOCHS: 10
 
 DATA_CONFIG:
