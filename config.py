@@ -119,18 +119,25 @@ def get_trainer(
     logger: loggers.Logger,
     optimizer: optim.Optimizer,
     lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
+    use_parallel_forward_pass: Optional[bool],
+    use_instance_norm: bool,
+    bn_track_running_stats: bool,
     device: torch.device,
     dtype: torch.dtype,
 ) -> trainers.Trainer:
     criterion = nn.CrossEntropyLoss()
 
     if isinstance(optimizer, optimizers.EvolutionaryOptimizer):
+        assert use_parallel_forward_pass is not None
         return trainers.EvolutionaryTrainer(
             model=model,
             dataloader=dataloader,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             criterion=criterion,
+            use_parallel_forward_pass=use_parallel_forward_pass,
+            bn_track_running_stats=bn_track_running_stats,
+            use_instance_norm=use_instance_norm,
             device=device,
             dtype=dtype,
             logger=logger,
@@ -166,9 +173,7 @@ class OptimizerConfig:
     MOMENTUM: float = 0.0
 
 
-def get_optimizer(
-    config: OptimizerConfig, model: nn.Module, device: torch.device, dtype: torch.dtype
-) -> optim.Optimizer:
+def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
     if config.OPTIMIZER_SLUG == "sgd":
         return optim.SGD(
             model.parameters(),
@@ -200,6 +205,7 @@ def get_optimizer(
             lr=config.LR,
             model=model,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+            use_parallel_forward_pass=config.USE_PARALLEL_FORWARD_PASS,
         )
     else:
         raise ValueError(f"Optimizer {config.OPTIMIZER_SLUG} is not supported")

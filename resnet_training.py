@@ -39,9 +39,7 @@ def run_training(
     # Get logger
     logger = loggers.Logger(wand_run)
 
-    optimizer = config.get_optimizer(
-        optimizer_config, model, general_config.DEVICE, general_config.DTYPE
-    )
+    optimizer = config.get_optimizer(optimizer_config, model)
 
     lr_scheduler = config.get_lr_scheduler(optimizer, lr_scheduler_config)
 
@@ -52,6 +50,9 @@ def run_training(
         logger=logger,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
+        use_parallel_forward_pass=optimizer_config.USE_PARALLEL_FORWARD_PASS,
+        use_instance_norm=model_config.USE_INSTANCE_NORM,
+        bn_track_running_stats=model_config.BN_TRACK_RUNNING_STATS,
         device=general_config.DEVICE,
         dtype=general_config.DTYPE,
     )
