@@ -40,7 +40,9 @@ def run_training(
     # Get logger
     logger = loggers.Logger(wand_run)
 
-    optimizer = config.get_optimizer(optimizer_config, model)
+    optimizer = config.get_optimizer(
+        optimizer_config, model, general_config.DEVICE, general_config.DTYPE
+    )
 
     lr_scheduler = config.get_lr_scheduler(optimizer, lr_scheduler_config)
 

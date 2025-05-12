@@ -1,10 +1,28 @@
+from abc import ABC, abstractmethod
+from typing import Iterable
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from torch._functorch.functional_call import functional_call
 from torch._functorch.apis import vmap
 
 
-class OpenAIEvolutionaryOptimizer:
+class EvolutionaryOptimizer(ABC, optim.Optimizer):
+    def __init__(self, params: Iterable[torch.Tensor], lr: float, popsize: int):
+        self.params = params
+        self.lr = lr
+        self.popsize = popsize
+
+    @abstractmethod
+    def get_generation(self):
+        pass
+
+    @abstractmethod
+    def step(self, losses: torch.Tensor):
+        pass
+
+
+class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
         popsize: int,
@@ -80,6 +98,9 @@ class OpenAIEvolutionaryOptimizer:
         # return the first of the batched buffers for each
         # does not make a difference, because all of the batched individuals get to see the same input
         return {n: b[0] for n, b in self.batched_named_buffers.items()}
+
+    def get_generation(self):
+        return
 
 
 class SimpleEvolutionaryOptimizer:
