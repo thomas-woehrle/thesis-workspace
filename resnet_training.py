@@ -1,82 +1,89 @@
-import os
-import random
 from dataclasses import asdict
-from typing import Optional
 
-import numpy as np
 import torch
 import wandb
 import wandb.wandb_run
 
-import config1
-import config_manager
+import config
 import loggers
+import utils
 
 
-def seed_everything(seed: int):
-    """Seeds everything. Cuda seeding and benchmarking configuration excluded for now."""
-    random.seed(seed)
-    # Set PYTHONHASHSEED environment variable at a fixed value
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-
-def run_training(config: config_manager.CompleteConfig, wandb_run: Optional[wandb.wandb_run.Run]):
+def run_training(
+    general_config: config.GeneralConfig,
+    data_config: config.DataConfig,
+    model_config: config.ModelConfig,
+    optimizer_config: config.OptimizerConfig,
+    lr_scheduler_config: config.LRSchedulerConfig,
+    trainer_config: config.TrainerConfig,
+    evaluatorConfig: config.EvaluatorConfig,
+    wand_run: wandb.wandb_run.Run,
+):
     # Seed
-    if config.top_level_config.SEED is not None:
-        seed_everything(config.top_level_config.SEED)
+    if general_config.SEED is not None:
+        utils.seed_everything(general_config.SEED)
 
     # Get dataloaders
-    train_dataloader = config_manager.get_cifar_dataloader(config.data_config, is_train=True)
-    val_dataloader = config_manager.get_cifar_dataloader(config.data_config, is_train=False)
+    train_dataloader = config.get_cifar_dataloader(data_config, is_train=True)
+    val_dataloader = config.get_cifar_dataloader(data_config, is_train=False)
 
     # Get model
-    model = config_manager.get_model(config.model_config, is_cifar10=config.data_config.IS_CIFAR10)
+    model = config.get_model(model_config, is_cifar10=data_config.IS_CIFAR10)
 
-    model.to(device=config.top_level_config.DEVICE, dtype=config.top_level_config.DTYPE)
-    if config.top_level_config.DEVICE == torch.device("mps"):
+    model.to(device=general_config.DEVICE, dtype=general_config.DTYPE)
+    if general_config.DEVICE == torch.device("mps"):
         model.compile(backend="aot_eager")
     else:
         model.compile()
 
     # Get logger
-    logger = loggers.Logger(wandb_run)
+    logger = loggers.Logger(wand_run)
 
-    optimizer = config_manager.get_optimizer(config.optimizer_config, model)
+    optimizer = config.get_optimizer(optimizer_config, model)
 
-    lr_scheduler = config_manager.get_lr_scheduler(optimizer, config.lr_scheduler_config)
+    lr_scheduler = config.get_lr_scheduler(optimizer, lr_scheduler_config)
 
     # Get trainer
-    trainer = config_manager.get_trainer(
-        config=config.trainer_config,
+    trainer = config.get_trainer(
+        config=trainer_config,
         model=model,
         dataloader=train_dataloader,
         logger=logger,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
-        device=config.top_level_config.DEVICE,
-        dtype=config.top_level_config.DTYPE,
+        device=general_config.DEVICE,
+        dtype=general_config.DTYPE,
     )
 
     # Get evaluator
-    evaluator = config_manager.get_evaluator(
-        config=config.evaluator_config,
+    evaluator = config.get_evaluator(
+        config=evaluatorConfig,
         model=model,
         dataloader=val_dataloader,
-        device=config.top_level_config.DEVICE,
-        dtype=config.top_level_config.DTYPE,
+        device=general_config.DEVICE,
+        dtype=general_config.DTYPE,
         logger=logger,
     )
 
     # Run Training
-    for epoch in range(config.top_level_config.NUM_EPOCHS):
+    for epoch in range(general_config.NUM_EPOCHS):
         trainer.train_epoch(epoch)
         evaluator.eval_epoch(epoch)
 
 
 if __name__ == "__main__":
-    config = config1.config1
+    run_config = utils.load_config_from_file("run_configs/new_test_config.yaml")
 
-    with wandb.init(project=config.top_level_config.WANDB_PROJECT, config=asdict(config)) as run:
-        run_training(config, run)
+    with wandb.init(
+        project=run_config.general_config.WANDB_PROJECT, config=asdict(run_config)
+    ) as wandb_run:
+        run_training(
+            general_config=run_config.general_config,
+            data_config=run_config.data_config,
+            model_config=run_config.model_config,
+            optimizer_config=run_config.optimizer_config,
+            lr_scheduler_config=run_config.lr_scheduler_config,
+            trainer_config=run_config.trainer_config,
+            evaluatorConfig=run_config.evaluator_config,
+            wand_run=wandb_run,
+        )

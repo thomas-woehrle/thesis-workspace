@@ -223,7 +223,7 @@ def get_lr_scheduler(
         raise ValueError(f"LR scheduler {scheduler_config.LR_SCHEDULER_SLUG} is not supported")
 
 
-# --- Evaluator
+# --- Evaluator ---
 
 
 @dataclass
@@ -251,11 +251,11 @@ def get_evaluator(
     )
 
 
-# --- TOP Level ---
+# --- General ---
 
 
 @dataclass
-class TopLevelConfig:
+class GeneralConfig:
     WANDB_PROJECT: str
     DEVICE: torch.device
     DTYPE: torch.dtype
@@ -263,15 +263,12 @@ class TopLevelConfig:
     NUM_EPOCHS: int
 
 
-# --- Complete ---
-
-
 @dataclass
-class CompleteConfig:
-    top_level_config: TopLevelConfig
+class RunConfig:
+    general_config: GeneralConfig
     data_config: DataConfig
     model_config: ModelConfig
-    trainer_config: TrainerConfig
     optimizer_config: OptimizerConfig
     lr_scheduler_config: LRSchedulerConfig
+    trainer_config: TrainerConfig
     evaluator_config: EvaluatorConfig
