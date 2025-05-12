@@ -167,11 +167,12 @@ def get_trainer(
 class OptimizerConfig:
     OPTIMIZER_SLUG: str
     LR: float
+    WEIGHT_DECAY: float = 0.0
+    MOMENTUM: float = 0.0
     POPSIZE: Optional[int] = None
     SIGMA: Optional[float] = None
     USE_ANTITHETIC_SAMPLING: Optional[bool] = False
-    WEIGHT_DECAY: float = 0.0
-    MOMENTUM: float = 0.0
+    NUM_FAMILIES: Optional[int] = None
 
 
 def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
@@ -204,6 +205,17 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             sigma=config.SIGMA,
             lr=config.LR,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+        )
+    elif config.OPTIMIZER_SLUG == "simple_evolutionary_optimizer":
+        assert config.POPSIZE is not None
+        assert config.SIGMA is not None
+        assert config.NUM_FAMILIES is not None
+        return optimizers.SimpleEvolutionaryOptimizer(
+            model.parameters(),
+            popsize=config.POPSIZE,
+            sigma=config.SIGMA,
+            lr=config.LR,
+            num_families=config.NUM_FAMILIES,
         )
     else:
         raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))
