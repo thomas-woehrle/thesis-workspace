@@ -143,7 +143,7 @@ class EvolutionaryTrainer(Trainer):
             losses = self.batched_criterion(y_hat, y)
 
         else:
-            losses = torch.zeros(popsize, device=mutated_batched_flat_params.device)
+            losses = torch.zeros(popsize, device=mutated_batched_flat_params.device, dtype=mutated_batched_flat_params.dtype)
 
             for i in range(popsize):
                 nn.utils.vector_to_parameters(
