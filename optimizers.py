@@ -73,6 +73,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         # estimate gradients
         if self.use_rank_transform:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
+            losses = losses.to(self.flat_params.dtype)
         normalized_losses = (losses - losses.mean()) / losses.std()
         g_hat = ((mutations.T / self.sigma) @ normalized_losses).flatten()
         g_hat = g_hat / (self.popsize * self.sigma)
