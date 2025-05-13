@@ -19,7 +19,11 @@ def run_training(
         utils.seed_everything(run_config.general_config.SEED)
 
     # Get dataloaders
-    train_dataloader = config.get_cifar_dataloader(run_config.data_config, is_train=True)
+    train_dataloader = config.get_cifar_dataloader(
+        run_config.data_config,
+        is_train=True,
+        num_train_steps=run_config.general_config.NUM_TRAIN_STEPS,
+    )
     val_dataloader = config.get_cifar_dataloader(run_config.data_config, is_train=False)
 
     # Get model
@@ -61,9 +65,17 @@ def run_training(
     )
 
     # Run Training
-    for epoch in range(run_config.general_config.NUM_EPOCHS):
-        trainer.train_epoch(epoch)
-        evaluator.eval_epoch(epoch)
+    # train_step is 1-indexed, because that makes the results more interpretable
+    train_step = 1
+    while train_step <= run_config.general_config.NUM_TRAIN_STEPS:
+        num_steps = min(
+            run_config.general_config.TRAIN_INTERVAL_LENGTH,
+            # +1 because train_step is 1-indexed
+            run_config.general_config.NUM_TRAIN_STEPS - train_step + 1,
+        )
+        trainer.train(train_step, num_steps=num_steps)
+        train_step += run_config.general_config.TRAIN_INTERVAL_LENGTH
+        evaluator.eval(train_step - 1)
 
 
 if __name__ == "__main__":
