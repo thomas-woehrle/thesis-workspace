@@ -60,7 +60,7 @@ class Evaluator1:
         top5_correct_preds = torch.zeros(len(self.dataloader))
 
         for batch_idx, batch in enumerate(
-            tqdm.tqdm(self.dataloader, leave=False, desc=f"Validation: Step {current_train_step}")
+            tqdm.tqdm(self.dataloader, leave=False, desc=f"Validation - Step {current_train_step}")
         ):
             (
                 batch_loss,
