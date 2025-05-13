@@ -128,8 +128,6 @@ def get_trainer(
     lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
     use_instance_norm: bool,
     bn_track_running_stats: bool,
-    device: torch.device,
-    dtype: torch.dtype,
 ) -> trainers.Trainer:
     criterion = nn.CrossEntropyLoss()
 
@@ -234,7 +232,7 @@ class LRSchedulerConfig:
 
 
 def get_lr_scheduler(
-    optimizer: optim.Optimizer, config: LRSchedulerConfig
+    config: LRSchedulerConfig, optimizer: optim.Optimizer
 ) -> Optional[optim.lr_scheduler.LRScheduler]:
     if config.LR_SCHEDULER_SLUG is None:
         return None
@@ -266,8 +264,6 @@ def get_evaluator(
     config: EvaluatorConfig,
     model: nn.Module,
     dataloader: DataLoader,
-    device: torch.device,
-    dtype: torch.dtype,
     logger: loggers.Logger,
 ) -> evaluators.Evaluator1:
     criterion = nn.CrossEntropyLoss()
@@ -275,8 +271,6 @@ def get_evaluator(
         model=model,
         dataloader=dataloader,
         criterion=criterion,
-        device=device,
-        dtype=dtype,
         do_log_models=config.DO_LOG_MODELS,
         logger=logger,
     )
