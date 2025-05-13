@@ -20,24 +20,23 @@ class Evaluator1:
         model: nn.Module,
         dataloader: DataLoader,
         criterion: Callable,
-        device: torch.device,
-        dtype: torch.dtype,
         do_log_models: bool,
         logger: loggers.Logger,
     ):
         self.model = model
         self.dataloader = dataloader
         self.criterion = criterion
-        self.device = device
-        self.dtype = dtype
         self.do_log_models = do_log_models
         self.logger = logger
 
     def eval_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         x, y = batch
         x, y = (
-            x.to(device=self.device, dtype=self.dtype),
-            y.to(device=self.device, dtype=torch.long),
+            x.to(
+                device=next(self.model.parameters()).device,
+                dtype=next(self.model.parameters()).dtype,
+            ),
+            y.to(device=next(self.model.parameters()).device, dtype=torch.long),
         )
 
         y_hat = self.model(x)
@@ -54,7 +53,6 @@ class Evaluator1:
     def eval_epoch(self, epoch: int):
         """Validate the current model"""
         self.model.eval()
-        self.model.to(device=self.device, dtype=self.dtype)
 
         losses = torch.zeros(len(self.dataloader))
         total_preds = torch.zeros(len(self.dataloader))
