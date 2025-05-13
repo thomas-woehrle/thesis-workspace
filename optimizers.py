@@ -35,11 +35,13 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         popsize: int,
         sigma: float,
         use_antithetic_sampling: bool,
+        use_rank_transform: bool,
     ):
         super().__init__(params, lr, popsize)
         self.popsize = popsize
         self.sigma = sigma
         self.use_antithetic_sampling = use_antithetic_sampling
+        self.use_rank_transform = use_rank_transform
         self.flat_params = nn.utils.parameters_to_vector(self.params)
 
     def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -69,6 +71,8 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
     def step(self, losses: torch.Tensor, mutations: torch.Tensor):
         # losses of shape popsize x 1
         # estimate gradients
+        if self.use_rank_transform:
+            losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
         normalized_losses = (losses - losses.mean()) / losses.std()
         g_hat = ((mutations.T / self.sigma) @ normalized_losses).flatten()
         g_hat = g_hat / (self.popsize * self.sigma)

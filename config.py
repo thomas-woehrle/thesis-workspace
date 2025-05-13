@@ -171,6 +171,7 @@ class OptimizerConfig:
     SIGMA: Optional[float] = None
     USE_ANTITHETIC_SAMPLING: Optional[bool] = False
     NUM_FAMILIES: Optional[int] = None
+    USE_RANK_TRANSFORM: Optional[bool] = None
 
 
 def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
@@ -197,12 +198,14 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
         assert config.POPSIZE is not None
         assert config.SIGMA is not None
         assert config.USE_ANTITHETIC_SAMPLING is not None
+        assert config.USE_RANK_TRANSFORM is not None
         return optimizers.OpenAIEvolutionaryOptimizer(
             model.parameters(),
             popsize=config.POPSIZE,
             sigma=config.SIGMA,
             lr=config.LR,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+            use_rank_transform=config.USE_RANK_TRANSFORM,
         )
     elif config.OPTIMIZER_SLUG == "simple_evolutionary_optimizer":
         assert config.POPSIZE is not None
