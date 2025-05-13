@@ -42,7 +42,7 @@ class Trainer(ABC):
         for train_step in tqdm.tqdm(
             range(start_train_step, start_train_step + num_steps),
             leave=False,
-            desc=f"Training: Steps {start_train_step} - {start_train_step + num_steps - 1} (ends inclusive)",
+            desc=f"Training - Steps {start_train_step} - {start_train_step + num_steps - 1}",
         ):
             x, y = next(iter(self.dataloader))
             # x should be desired dtype, y should be long
@@ -59,6 +59,10 @@ class Trainer(ABC):
             loss = self.train_step(x, y)
 
             self.logger.log({"train/loss": loss}, train_step)
+
+            if self.lr_scheduler:
+                self.logger.log({"debug/lr": self.lr_scheduler.get_last_lr()[0]}, train_step)
+                self.lr_scheduler.step()
 
 
 class BackpropagationTrainer(Trainer):
@@ -77,12 +81,6 @@ class BackpropagationTrainer(Trainer):
 
     def train(self, start_train_step: int, num_steps: int):
         super().train(start_train_step, num_steps)
-
-        if self.lr_scheduler:
-            self.logger.log(
-                {"debug/lr": self.lr_scheduler.get_last_lr()[0]}, start_train_step + num_steps - 1
-            )
-            self.lr_scheduler.step()
 
 
 class EvolutionaryTrainer(Trainer):
