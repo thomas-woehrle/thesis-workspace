@@ -50,7 +50,7 @@ class Evaluator1:
         return loss, total_preds, top1_correct_preds, top5_correct_preds
 
     @torch.no_grad()
-    def eval_epoch(self, epoch: int):
+    def eval(self, current_train_step: int):
         """Validate the current model"""
         self.model.eval()
 
@@ -60,7 +60,7 @@ class Evaluator1:
         top5_correct_preds = torch.zeros(len(self.dataloader))
 
         for batch_idx, batch in enumerate(
-            tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Validation")
+            tqdm.tqdm(self.dataloader, leave=False, desc=f"Validation: Step {current_train_step}")
         ):
             (
                 batch_loss,
@@ -75,12 +75,12 @@ class Evaluator1:
 
         self.logger.log(
             {"val/top1_accuracy": top1_correct_preds.sum().item() / total_preds.sum().item()},
-            epoch,
+            current_train_step,
         )
         self.logger.log(
             {"val/top5_accuracy": top5_correct_preds.sum().item() / total_preds.sum().item()},
-            epoch,
+            current_train_step,
         )
-        self.logger.log({"val/loss": losses.mean().item()}, epoch)
+        self.logger.log({"val/loss": losses.mean().item()}, current_train_step)
         if self.do_log_models:
             self.logger.log_model(self.model)

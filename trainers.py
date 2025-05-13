@@ -31,19 +31,20 @@ class Trainer(ABC):
         self.logger = logger
 
     @abstractmethod
-    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
+    def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
         """Can return float or tensor. Tensor should be preferred if train_epoch uses it as tensor anyway,
         which will often be the case. Reason is that the .item() conversion blocks the GPU for a very short piece of time."""
         raise NotImplementedError()
 
-    def train_epoch(self, epoch: int):
+    def train(self, start_train_step: int, num_steps: int):
         self.model.train()
 
-        losses = torch.zeros(len(self.dataloader))
-        for batch_idx, batch in enumerate(
-            tqdm.tqdm(self.dataloader, leave=False, desc=f"Epoch {epoch} - Training")
+        for train_step in tqdm.tqdm(
+            range(start_train_step, start_train_step + num_steps),
+            leave=False,
+            desc=f"Training: Steps {start_train_step} - {start_train_step + num_steps - 1} (ends inclusive)",
         ):
-            x, y = batch
+            x, y = next(iter(self.dataloader))
             # x should be desired dtype, y should be long
             x, y = (
                 x.to(
@@ -55,15 +56,15 @@ class Trainer(ABC):
                     device=next(self.model.parameters()).device, dtype=torch.long, non_blocking=True
                 ),
             )
-            losses[batch_idx] = self.train_step(x, y, batch_idx)
+            loss = self.train_step(x, y)
 
-        self.logger.log({"train/loss": losses.mean().item()}, epoch)
+            self.logger.log({"train/loss": loss}, train_step)
 
 
 class BackpropagationTrainer(Trainer):
     optimizer: optim.Optimizer
 
-    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
+    def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
         self.optimizer.zero_grad()
 
         y_hat = self.model(x)
@@ -74,11 +75,13 @@ class BackpropagationTrainer(Trainer):
 
         return loss
 
-    def train_epoch(self, epoch: int):
-        super().train_epoch(epoch)
+    def train(self, start_train_step: int, num_steps: int):
+        super().train(start_train_step, num_steps)
 
         if self.lr_scheduler:
-            self.logger.log({"debug/lr": self.lr_scheduler.get_last_lr()[0]}, epoch)
+            self.logger.log(
+                {"debug/lr": self.lr_scheduler.get_last_lr()[0]}, start_train_step + num_steps - 1
+            )
             self.lr_scheduler.step()
 
 
@@ -128,7 +131,7 @@ class EvolutionaryTrainer(Trainer):
 
         return batched_named_params
 
-    def train_step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int) -> torch.Tensor | float:
+    def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
         mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
         mutated_batched_named_params = self._get_batched_named_params(
             mutated_batched_flat_params, self.optimizer.popsize
@@ -143,7 +146,11 @@ class EvolutionaryTrainer(Trainer):
             losses = self.batched_criterion(y_hat, y)
 
         else:
-            losses = torch.zeros(popsize, device=mutated_batched_flat_params.device, dtype=mutated_batched_flat_params.dtype)
+            losses = torch.zeros(
+                popsize,
+                device=mutated_batched_flat_params.device,
+                dtype=mutated_batched_flat_params.dtype,
+            )
 
             for i in range(popsize):
                 nn.utils.vector_to_parameters(
@@ -156,8 +163,8 @@ class EvolutionaryTrainer(Trainer):
         return losses.mean()
 
     @torch.no_grad()
-    def train_epoch(self, epoch: int):
-        super().train_epoch(epoch)
+    def train(self, start_train_step: int, num_steps: int):
+        super().train(start_train_step, num_steps)
 
         if (
             self.use_parallel_forward_pass

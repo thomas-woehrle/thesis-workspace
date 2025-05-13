@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, RandomSampler, Subset
 
 
 import evaluators
@@ -16,6 +16,19 @@ import resnet_cifar_small
 import resnet_cifar
 import utils
 import trainers
+
+
+# --- General ---
+
+
+@dataclass
+class GeneralConfig:
+    WANDB_PROJECT: str
+    DEVICE: torch.device
+    DTYPE: torch.dtype
+    SEED: Optional[int]
+    NUM_TRAIN_STEPS: int
+    TRAIN_INTERVAL_LENGTH: int
 
 
 # --- Data ---
@@ -35,7 +48,9 @@ CIFAR100_MEAN = (0.5071, 0.4865, 0.4409)
 CIFAR100_STD = (0.2673, 0.2564, 0.2762)
 
 
-def get_cifar_dataloader(config: DataConfig, is_train: bool) -> DataLoader:
+def get_cifar_dataloader(
+    config: DataConfig, is_train: bool, num_train_steps: Optional[int] = None
+) -> DataLoader:
     train_transforms = (
         transforms.Compose(
             [
@@ -75,13 +90,27 @@ def get_cifar_dataloader(config: DataConfig, is_train: bool) -> DataLoader:
     if config.USE_EVERY_NTH is not None:
         dataset = Subset(dataset, indices=range(0, len(dataset), config.USE_EVERY_NTH))
 
-    dataloader = DataLoader(
-        dataset,
-        config.BATCH_SIZE,
-        num_workers=config.NUM_WORKERS,
-        shuffle=is_train,
-        pin_memory=True,
-    )
+    if is_train:
+        assert num_train_steps is not None, (
+            "num_train_steps can not be None, when getting the train_dataloader"
+        )
+        dataloader = DataLoader(
+            dataset=dataset,
+            batch_size=config.BATCH_SIZE,
+            sampler=RandomSampler(
+                dataset, replacement=False, num_samples=config.BATCH_SIZE * num_train_steps
+            ),
+            num_workers=config.NUM_WORKERS,
+            pin_memory=True,
+        )
+    else:
+        dataloader = DataLoader(
+            dataset=dataset,
+            batch_size=config.BATCH_SIZE,
+            num_workers=config.NUM_WORKERS,
+            shuffle=False,
+            pin_memory=True,
+        )
 
     return dataloader
 
@@ -279,16 +308,7 @@ def get_evaluator(
     )
 
 
-# --- General ---
-
-
-@dataclass
-class GeneralConfig:
-    WANDB_PROJECT: str
-    DEVICE: torch.device
-    DTYPE: torch.dtype
-    SEED: Optional[int]
-    NUM_EPOCHS: int
+# --- Complete ---
 
 
 @dataclass
