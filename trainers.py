@@ -40,8 +40,9 @@ class Trainer(ABC):
     def train(self, start_train_step: int, num_steps: int):
         self.model.train()
 
-        for train_step in tqdm.tqdm(
-            range(start_train_step, start_train_step + num_steps),
+        losses = torch.zeros(num_steps)
+        for i in tqdm.tqdm(
+            range(num_steps),
             leave=False,
             desc=f"Training - Steps {start_train_step} - {start_train_step + num_steps - 1}",
         ):
@@ -57,13 +58,18 @@ class Trainer(ABC):
                     device=next(self.model.parameters()).device, dtype=torch.long, non_blocking=True
                 ),
             )
-            loss = self.train_step(x, y)
-
-            self.logger.log({"train/loss": loss}, train_step)
+            losses[i] = self.train_step(x, y)
 
             if self.lr_scheduler:
-                self.logger.log({"debug/lr": self.lr_scheduler.get_last_lr()[0]}, train_step)
                 self.lr_scheduler.step()
+
+        # Logging
+        self.logger.log({"train/loss": losses.mean().item()}, start_train_step + num_steps - 1)
+
+        if self.lr_scheduler:
+            self.logger.log(
+                {"debug/lr": self.lr_scheduler.get_last_lr()[0]}, start_train_step + num_steps - 1
+            )
 
 
 class BackpropagationTrainer(Trainer):
