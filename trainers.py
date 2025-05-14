@@ -111,8 +111,9 @@ class EvolutionaryTrainer(Trainer):
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
+        self.popsize = self.optimizer.param_groups[0]["popsize"]
         self.batched_named_buffers = {
-            n: b.repeat(self.optimizer.popsize, 1) for n, b in self.model.named_buffers()
+            n: b.repeat(self.popsize, 1) for n, b in self.model.named_buffers()
         }
 
     def _get_batched_named_params(self, batched_flat_params: torch.Tensor, popsize: int):
@@ -132,7 +133,7 @@ class EvolutionaryTrainer(Trainer):
     def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
         mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
         mutated_batched_named_params = self._get_batched_named_params(
-            mutated_batched_flat_params, self.optimizer.popsize
+            mutated_batched_flat_params, self.popsize
         )
 
         popsize = mutations.shape[0]
