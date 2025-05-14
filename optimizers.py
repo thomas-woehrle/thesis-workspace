@@ -9,9 +9,6 @@ class EvolutionaryOptimizer(ABC, optim.Optimizer):
     def __init__(self, params: Iterable[torch.Tensor], lr: float, popsize: int, **kwargs):
         defaults = dict(lr=lr, popsize=popsize, **kwargs)
         super().__init__(params, defaults)
-        # self.params = list(params)
-        # self.lr = lr
-        # self.popsize = popsize
 
     @abstractmethod
     def get_new_generation(
@@ -81,6 +78,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         if param_group["use_rank_transform"]:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
             losses = losses.to(self.flat_params.dtype)
+
         normalized_losses = (losses - losses.mean()) / losses.std()
         g_hat = ((mutations.T / param_group["sigma"]) @ normalized_losses).flatten()
         g_hat = g_hat / (param_group["popsize"] * param_group["sigma"])
