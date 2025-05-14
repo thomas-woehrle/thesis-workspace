@@ -25,6 +25,7 @@ class Trainer(ABC):
     ):
         self.model = model
         self.dataloader = dataloader
+        self.data_iterator = iter(self.dataloader)
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.criterion = criterion
@@ -44,7 +45,7 @@ class Trainer(ABC):
             leave=False,
             desc=f"Training - Steps {start_train_step} - {start_train_step + num_steps - 1}",
         ):
-            x, y = next(iter(self.dataloader))
+            x, y = next(self.data_iterator)
             # x should be desired dtype, y should be long
             x, y = (
                 x.to(
