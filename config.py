@@ -235,7 +235,6 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             lr=config.LR,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
             use_rank_transform=config.USE_RANK_TRANSFORM,
-            weight_decay=config.WEIGHT_DECAY,
         )
     elif config.OPTIMIZER_SLUG == "simple_evolutionary_optimizer":
         assert config.POPSIZE is not None
