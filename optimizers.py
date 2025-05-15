@@ -45,6 +45,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
             weight_decay=weight_decay,
         )
         self.flat_params = nn.utils.parameters_to_vector(self.param_groups[0]["params"])
+        self.params_dtype: torch.dtype = self.param_groups[0]["params"][0].dtype
 
     def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
         param_group = self.param_groups[0]
@@ -80,10 +81,14 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
 
         if param_group["use_rank_transform"]:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
-            losses = losses.to(self.flat_params.dtype)
+            losses = losses.to(self.params_dtype)
 
         # Weight decay
-        self.flat_params.mul_(1 - param_group["lr"] * param_group["weight_decay"])
+        if param_group["weight_decay"] != 0.0:
+            # switch to fp32 because of precision
+            flat_params_fp32 = self.flat_params.float()
+            flat_params_fp32.mul_(1 - param_group["lr"] * param_group["weight_decay"])
+            self.flat_params = flat_params_fp32.to(self.params_dtype)
 
         # Gradient estimation
         normalized_losses = (losses - losses.mean()) / losses.std()
