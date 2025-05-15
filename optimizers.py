@@ -32,7 +32,9 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         sigma: float,
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
+        weight_decay: float,
     ):
+        assert weight_decay >= 0
         super().__init__(
             params,
             lr,
@@ -40,6 +42,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
             sigma=sigma,
             use_antithetic_sampling=use_antithetic_sampling,
             use_rank_transform=use_rank_transform,
+            weight_decay=weight_decay,
         )
         self.flat_params = nn.utils.parameters_to_vector(self.param_groups[0]["params"])
 
@@ -73,15 +76,20 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
 
     def step(self, losses: torch.Tensor, mutations: torch.Tensor):
         # losses of shape popsize x 1
-        # estimate gradients
         param_group = self.param_groups[0]
+
         if param_group["use_rank_transform"]:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
             losses = losses.to(self.flat_params.dtype)
 
+        # Weight decay
+        self.flat_params.mul_(1 - param_group["lr"] * param_group["weight_decay"])
+
+        # Gradient estimation
         normalized_losses = (losses - losses.mean()) / losses.std()
         g_hat = ((mutations.T / param_group["sigma"]) @ normalized_losses).flatten()
         g_hat = g_hat / (param_group["popsize"] * param_group["sigma"])
+
         self.flat_params -= param_group["lr"] * g_hat
         nn.utils.vector_to_parameters(self.flat_params, param_group["params"])
 
