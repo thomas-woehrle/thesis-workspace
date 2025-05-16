@@ -92,8 +92,8 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         g_hat = g_hat / (param_group["popsize"] * param_group["sigma"])
 
         # load gradients into .grad fields
-        nn.utils.vector_to_parameters(g_hat, [p.grad for p in param_group["params"]])
         self.optimizer.zero_grad(set_to_none=False)
+        nn.utils.vector_to_parameters(g_hat, [p.grad for p in param_group["params"]])
         self.optimizer.step()
 
 
