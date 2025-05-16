@@ -95,6 +95,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         self.optimizer.zero_grad(set_to_none=False)
         nn.utils.vector_to_parameters(g_hat, [p.grad for p in param_group["params"]])
         self.optimizer.step()
+        self.flat_params = nn.utils.parameters_to_vector(param_group["params"])
 
 
 class SimpleEvolutionaryOptimizer(EvolutionaryOptimizer):
