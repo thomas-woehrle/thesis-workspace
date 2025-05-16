@@ -33,6 +33,8 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
     ):
+        # turning into a list because used multiple times
+        params = list(params)
         super().__init__(
             params,
             lr,
@@ -41,7 +43,13 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
             use_antithetic_sampling=use_antithetic_sampling,
             use_rank_transform=use_rank_transform,
         )
-        self.flat_params = nn.utils.parameters_to_vector(self.param_groups[0]["params"])
+        self.flat_params = nn.utils.parameters_to_vector(params)
+
+        # nullify params.grad, because they start out as 'None'
+        for p in params:
+            p.grad = torch.zeros_like(p)
+
+        self.optimizer = optim.SGD(params, lr=lr)
 
     def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
         param_group = self.param_groups[0]
@@ -82,8 +90,11 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         normalized_losses = (losses - losses.mean()) / losses.std()
         g_hat = ((mutations.T / param_group["sigma"]) @ normalized_losses).flatten()
         g_hat = g_hat / (param_group["popsize"] * param_group["sigma"])
-        self.flat_params -= param_group["lr"] * g_hat
-        nn.utils.vector_to_parameters(self.flat_params, param_group["params"])
+
+        # load gradients into .grad fields
+        nn.utils.vector_to_parameters(g_hat, [p.grad for p in param_group["params"]])
+        self.optimizer.zero_grad(set_to_none=False)
+        self.optimizer.step()
 
 
 class SimpleEvolutionaryOptimizer(EvolutionaryOptimizer):
