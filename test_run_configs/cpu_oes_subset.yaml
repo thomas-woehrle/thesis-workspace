@@ -1,7 +1,7 @@
 GENERAL_CONFIG:
   WANDB_PROJECT: "thesis_baseline_testruns"
   DEVICE: "cpu"
-  DTYPE: float32
+  DTYPE: bfloat16
   SEED: 0
   NUM_TRAIN_STEPS: 50
   TRAIN_INTERVAL_LENGTH: 10
