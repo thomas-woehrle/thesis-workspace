@@ -23,6 +23,7 @@ TRAINER_CONFIG:
 
 OPTIMIZER_CONFIG:
   OPTIMIZER_SLUG: "openai_evolutionary_optimizer"
+  NES_INNER_OPTIMIZER_SLUG: "sgd"
   LR: 0.001
   POPSIZE: 10
   SIGMA: 0.1

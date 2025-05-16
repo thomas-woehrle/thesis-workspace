@@ -27,9 +27,11 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
         params: Iterable[torch.Tensor],
+        # lr not actually needed, because of inner optimizer
         lr: float,
         popsize: int,
         sigma: float,
+        inner_optimizer: optim.Optimizer,
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
     ):
@@ -43,13 +45,16 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
             use_antithetic_sampling=use_antithetic_sampling,
             use_rank_transform=use_rank_transform,
         )
+
         self.flat_params = nn.utils.parameters_to_vector(params)
+
+        # the inner optimizer should be a normal optimizer, ie not evolutionary
+        assert not isinstance(inner_optimizer, EvolutionaryOptimizer)
+        self.inner_optimizer = inner_optimizer
 
         # nullify params.grad, because they start out as 'None'
         for p in params:
             p.grad = torch.zeros_like(p)
-
-        self.optimizer = optim.SGD(params, lr=lr)
 
     def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
         param_group = self.param_groups[0]
@@ -92,9 +97,9 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         g_hat = g_hat / (param_group["popsize"] * param_group["sigma"])
 
         # load gradients into .grad fields
-        self.optimizer.zero_grad(set_to_none=False)
+        self.inner_optimizer.zero_grad(set_to_none=False)
         nn.utils.vector_to_parameters(g_hat, [p.grad for p in param_group["params"]])
-        self.optimizer.step()
+        self.inner_optimizer.step()
         self.flat_params = nn.utils.parameters_to_vector(param_group["params"])
 
 

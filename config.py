@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 import torch
@@ -194,6 +194,7 @@ def get_trainer(
 class OptimizerConfig:
     OPTIMIZER_SLUG: str
     LR: float
+    NES_INNER_OPTIMIZER_SLUG: Optional[str] = None
     WEIGHT_DECAY: float = 0.0
     MOMENTUM: float = 0.0
     POPSIZE: Optional[int] = None
@@ -226,13 +227,25 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
     elif config.OPTIMIZER_SLUG == "openai_evolutionary_optimizer":
         assert config.POPSIZE is not None
         assert config.SIGMA is not None
+        assert config.NES_INNER_OPTIMIZER_SLUG is not None
         assert config.USE_ANTITHETIC_SAMPLING is not None
         assert config.USE_RANK_TRANSFORM is not None
+
+        # The inner_optimizer uses lr, momentum and weight_decay.
+        # Popsize etc are not needed, but don't bother either
+        inner_optimizer_config_dict = asdict(config)
+        inner_optimizer_config_dict["OPTIMIZER_SLUG"] = config.NES_INNER_OPTIMIZER_SLUG
+        inner_optimizer = get_optimizer(
+            OptimizerConfig(**inner_optimizer_config_dict),
+            model=model,
+        )
+
         return optimizers.OpenAIEvolutionaryOptimizer(
             model.parameters(),
             popsize=config.POPSIZE,
             sigma=config.SIGMA,
             lr=config.LR,
+            inner_optimizer=inner_optimizer,
             use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
             use_rank_transform=config.USE_RANK_TRANSFORM,
         )
