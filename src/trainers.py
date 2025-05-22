@@ -7,6 +7,7 @@ import torch.optim as optim
 import tqdm
 from torch.utils.data import DataLoader
 from torch._functorch.apis import vmap
+import torch.profiler as profiler
 
 import loggers
 import optimizers
@@ -138,34 +139,39 @@ class EvolutionaryTrainer(Trainer):
         return batched_named_params
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
-        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
-        mutated_batched_named_params = self._get_batched_named_params(
-            mutated_batched_flat_params, self.popsize
-        )
+        with profiler.record_function("optimizer_get_new_generation"):
+            mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
+        with profiler.record_function("get_batched_named_params"):
+            mutated_batched_named_params = self._get_batched_named_params(
+                mutated_batched_flat_params, self.popsize
+            )
 
         popsize = mutations.shape[0]
 
-        if self.use_parallel_forward_pass:
-            y_hat = utils.parallel_forward_pass(
-                self.model, (mutated_batched_named_params, self.batched_named_buffers), x
-            )
-            losses = self.batched_criterion(y_hat, y)
-
-        else:
-            losses = torch.zeros(
-                popsize,
-                device=mutated_batched_flat_params.device,
-                dtype=mutated_batched_flat_params.dtype,
-            )
-
-            for i in range(popsize):
-                nn.utils.vector_to_parameters(
-                    mutated_batched_flat_params[i], self.model.parameters()
+        with profiler.record_function("forward_pass"):
+            if self.use_parallel_forward_pass:
+                y_hat = utils.parallel_forward_pass(
+                    self.model, (mutated_batched_named_params, self.batched_named_buffers), x
                 )
-                y_hat = self.model(x)
-                losses[i] = self.criterion(y_hat, y)
+                losses = self.batched_criterion(y_hat, y)
 
-        self.optimizer.step(losses, mutations)
+            else:
+                losses = torch.zeros(
+                    popsize,
+                    device=mutated_batched_flat_params.device,
+                    dtype=mutated_batched_flat_params.dtype,
+                )
+
+                for i in range(popsize):
+                    nn.utils.vector_to_parameters(
+                        mutated_batched_flat_params[i], self.model.parameters()
+                    )
+                    y_hat = self.model(x)
+                    losses[i] = self.criterion(y_hat, y)
+
+        with profiler.record_function("optimizer_step"):
+            self.optimizer.step(losses, mutations)
+
         return losses.mean()
 
     @torch.no_grad()
