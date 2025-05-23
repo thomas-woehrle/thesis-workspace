@@ -30,10 +30,12 @@ def run_training(
     model = config.get_model(run_config.model_config, is_cifar10=run_config.data_config.IS_CIFAR10)
     model.to(device=run_config.general_config.DEVICE, dtype=run_config.general_config.DTYPE)
 
-    if run_config.general_config.DEVICE == torch.device("mps"):
-        model.compile(backend="aot_eager")
-    else:
-        model.compile()
+    if run_config.general_config.USE_TORCH_COMPILE:
+        # in the evolutionary case, the actual speed-improving compilation happens in the trainer
+        if run_config.general_config.DEVICE == torch.device("mps"):
+            model.compile(backend="aot_eager")
+        else:
+            model.compile()
 
     # Get logger
     logger = loggers.Logger(wand_run)
@@ -54,6 +56,7 @@ def run_training(
         lr_scheduler=lr_scheduler,
         use_instance_norm=run_config.model_config.USE_INSTANCE_NORM,
         bn_track_running_stats=run_config.model_config.BN_TRACK_RUNNING_STATS,
+        use_torch_compile=run_config.general_config.USE_TORCH_COMPILE,
     )
 
     # Get evaluator

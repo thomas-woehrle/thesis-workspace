@@ -105,6 +105,7 @@ class EvolutionaryTrainer(Trainer):
         bn_track_running_stats: bool,
         use_instance_norm: bool,
         logger: loggers.Logger,
+        use_torch_compile: bool,
     ):
         super().__init__(
             model=model,
@@ -115,6 +116,10 @@ class EvolutionaryTrainer(Trainer):
             logger=logger,
         )
         self.use_parallel_forward_pass = use_parallel_forward_pass
+        self.parallel_forward_pass_fn = utils.get_parallel_forward_pass_fn(self.model)
+        if use_torch_compile:
+            self.parallel_forward_pass_fn = torch.compile(self.parallel_forward_pass_fn)
+
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
@@ -146,8 +151,8 @@ class EvolutionaryTrainer(Trainer):
         popsize = mutations.shape[0]
 
         if self.use_parallel_forward_pass:
-            y_hat = utils.parallel_forward_pass(
-                self.model, (mutated_batched_named_params, self.batched_named_buffers), x
+            y_hat = self.parallel_forward_pass_fn(
+                (mutated_batched_named_params, self.batched_named_buffers), x
             )
             losses = self.batched_criterion(y_hat, y)
 
