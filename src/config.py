@@ -29,6 +29,7 @@ class GeneralConfig:
     SEED: Optional[int]
     NUM_TRAIN_STEPS: int
     TRAIN_INTERVAL_LENGTH: int
+    USE_TORCH_COMPILE: bool
 
 
 # --- Data ---
@@ -157,11 +158,13 @@ def get_trainer(
     lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
     use_instance_norm: bool,
     bn_track_running_stats: bool,
+    use_torch_compile: Optional[bool],
 ) -> trainers.Trainer:
     criterion = nn.CrossEntropyLoss()
 
     if isinstance(optimizer, optimizers.EvolutionaryOptimizer):
         assert config.USE_PARALLEL_FORWARD_PASS is not None
+        assert use_torch_compile is not None
         return trainers.EvolutionaryTrainer(
             model=model,
             dataloader=dataloader,
@@ -172,6 +175,7 @@ def get_trainer(
             bn_track_running_stats=bn_track_running_stats,
             use_instance_norm=use_instance_norm,
             logger=logger,
+            use_torch_compile=use_torch_compile,
         )
     else:
         return trainers.BackpropagationTrainer(
