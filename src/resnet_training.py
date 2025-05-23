@@ -68,7 +68,7 @@ def run_training(
     # Run Training
     # train_step is 1-indexed, because that makes the results more interpretable
     train_step = 1
-    with profiler.profile(record_shapes=True) as prof:
+    with profiler.profile() as prof:
         while train_step <= run_config.general_config.NUM_TRAIN_STEPS:
             num_steps = min(
                 run_config.general_config.TRAIN_INTERVAL_LENGTH,
@@ -82,11 +82,7 @@ def run_training(
     print(
         f"\n--- Overall Profiler Report for {run_config.general_config.NUM_TRAIN_STEPS} steps ---"
     )
-    print(
-        prof.key_averages().table(
-            sort_by="self_cpu_time_total", row_limit=20, top_level_events_only=True
-        )
-    )
+    print(prof.key_averages().table(sort_by="self_cpu_time_total", top_level_events_only=True))
 
 
 if __name__ == "__main__":
