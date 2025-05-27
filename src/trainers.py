@@ -125,7 +125,7 @@ class EvolutionaryTrainer(Trainer):
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
         self.popsize = self.optimizer.param_groups[0]["popsize"]
         self.batched_named_buffers = {
-            n: b.repeat(self.popsize, 1) for n, b in self.model.named_buffers()
+            n: torch.stack([b] * self.popsize, dim=0) for n, b in self.model.named_buffers()
         }
 
     def _get_batched_named_params(self, batched_flat_params: torch.Tensor, popsize: int):
