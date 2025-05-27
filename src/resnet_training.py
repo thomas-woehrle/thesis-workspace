@@ -30,18 +30,11 @@ def run_training(
     model = config.get_model(run_config.model_config, is_cifar10=run_config.data_config.IS_CIFAR10)
     model.to(device=run_config.general_config.DEVICE, dtype=run_config.general_config.DTYPE)
 
-    if run_config.general_config.USE_TORCH_COMPILE:
-        # in the evolutionary case, the actual speed-improving compilation happens in the trainer
-        if run_config.general_config.DEVICE == torch.device("mps"):
-            model.compile(backend="aot_eager")
-        else:
-            model.compile()
+    # Get optimizer
+    optimizer = config.get_optimizer(run_config.optimizer_config, model)
 
     # Get logger
     logger = loggers.Logger(wand_run)
-
-    # Get optimizer
-    optimizer = config.get_optimizer(run_config.optimizer_config, model)
 
     # Get lr scheduler
     lr_scheduler = config.get_lr_scheduler(run_config.lr_scheduler_config, optimizer)
@@ -66,6 +59,17 @@ def run_training(
         dataloader=val_dataloader,
         logger=logger,
     )
+
+    # Compile model
+    if run_config.general_config.USE_TORCH_COMPILE and not isinstance(
+        optimizer, config.optimizers.EvolutionaryOptimizer
+    ):
+        # In the evolutionary case, the actual speed-improving compilation happens in the trainer.
+        # Otherwise, we compile the model here.
+        if run_config.general_config.DEVICE == torch.device("mps"):
+            model.compile(backend="aot_eager")
+        else:
+            model.compile()
 
     # Run Training
     # train_step is 1-indexed, because that makes the results more interpretable
