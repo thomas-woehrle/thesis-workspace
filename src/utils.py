@@ -49,18 +49,6 @@ def seed_everything(seed: int):
     torch.manual_seed(seed)
 
 
-def parallel_forward_pass(
-    model: nn.Module,
-    batched_parameter_and_buffer_dicts: tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]],
-    x: torch.Tensor,
-):
-    def forward_pass(parameter_and_buffer_dicts):
-        return functional_call(model, (parameter_and_buffer_dicts), (x,))
-
-    batched_forward_pass = vmap(forward_pass)
-    return batched_forward_pass(batched_parameter_and_buffer_dicts)
-
-
 def get_parallel_forward_pass_fn(
     model: nn.Module,
 ):
