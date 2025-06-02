@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Optional
 
 import torch
@@ -197,6 +197,7 @@ def get_trainer(
 @dataclass
 class OptimizerConfig:
     OPTIMIZER_SLUG: str
+    IS_EVOLUTIONARY: bool
     LR: float
     NES_INNER_OPTIMIZER_SLUG: Optional[str] = None
     WEIGHT_DECAY: float = 0.0
@@ -209,63 +210,46 @@ class OptimizerConfig:
 
 
 def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
-    if config.OPTIMIZER_SLUG == "sgd":
-        return optim.SGD(
-            model.parameters(),
-            lr=config.LR,
-            momentum=config.MOMENTUM,
-            weight_decay=config.WEIGHT_DECAY,
-        )
-    elif config.OPTIMIZER_SLUG == "adam":
-        return optim.Adam(
-            model.parameters(),
-            lr=config.LR,
-            weight_decay=config.WEIGHT_DECAY,
-        )
-    elif config.OPTIMIZER_SLUG == "adamw":
-        return optim.AdamW(
-            model.parameters(),
-            lr=config.LR,
-            weight_decay=config.WEIGHT_DECAY,
-        )
-    elif config.OPTIMIZER_SLUG == "openai_evolutionary_optimizer":
-        assert config.POPSIZE is not None
-        assert config.SIGMA is not None
-        assert config.NES_INNER_OPTIMIZER_SLUG is not None
-        assert config.USE_ANTITHETIC_SAMPLING is not None
-        assert config.USE_RANK_TRANSFORM is not None
+    if config.IS_EVOLUTIONARY:
+        if config.OPTIMIZER_SLUG == "openai_evolutionary_optimizer":
+            assert config.POPSIZE is not None
+            assert config.SIGMA is not None
+            assert config.NES_INNER_OPTIMIZER_SLUG is not None
+            assert config.USE_ANTITHETIC_SAMPLING is not None
+            assert config.USE_RANK_TRANSFORM is not None
 
-        # The inner_optimizer uses lr, momentum and weight_decay.
-        # Popsize etc are not needed, but don't bother either
-        inner_optimizer_config_dict = asdict(config)
-        inner_optimizer_config_dict["OPTIMIZER_SLUG"] = config.NES_INNER_OPTIMIZER_SLUG
-        inner_optimizer = get_optimizer(
-            OptimizerConfig(**inner_optimizer_config_dict),
-            model=model,
-        )
-
-        return optimizers.OpenAIEvolutionaryOptimizer(
-            model.parameters(),
-            popsize=config.POPSIZE,
-            sigma=config.SIGMA,
-            lr=config.LR,
-            inner_optimizer=inner_optimizer,
-            use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
-            use_rank_transform=config.USE_RANK_TRANSFORM,
-        )
-    elif config.OPTIMIZER_SLUG == "simple_evolutionary_optimizer":
-        assert config.POPSIZE is not None
-        assert config.SIGMA is not None
-        assert config.NUM_FAMILIES is not None
-        return optimizers.SimpleEvolutionaryOptimizer(
-            model.parameters(),
-            popsize=config.POPSIZE,
-            sigma=config.SIGMA,
-            lr=config.LR,
-            num_families=config.NUM_FAMILIES,
-        )
+            return optimizers.OpenAIEvolutionaryOptimizer(
+                model.parameters(),
+                popsize=config.POPSIZE,
+                sigma=config.SIGMA,
+                lr=config.LR,
+                inner_optimizer_slug=config.NES_INNER_OPTIMIZER_SLUG,
+                momentum=config.MOMENTUM,
+                weight_decay=config.WEIGHT_DECAY,
+                use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+                use_rank_transform=config.USE_RANK_TRANSFORM,
+            )
+        elif config.OPTIMIZER_SLUG == "simple_evolutionary_optimizer":
+            assert config.POPSIZE is not None
+            assert config.SIGMA is not None
+            assert config.NUM_FAMILIES is not None
+            return optimizers.SimpleEvolutionaryOptimizer(
+                model.parameters(),
+                popsize=config.POPSIZE,
+                sigma=config.SIGMA,
+                lr=config.LR,
+                num_families=config.NUM_FAMILIES,
+            )
+        else:
+            raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))
     else:
-        raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))
+        return utils.get_non_evolutionary_optimizer(
+            config.OPTIMIZER_SLUG,
+            model.parameters(),
+            config.LR,
+            config.MOMENTUM,
+            config.WEIGHT_DECAY,
+        )
 
 
 # --- LR Scheduler ---

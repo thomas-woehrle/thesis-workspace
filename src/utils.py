@@ -1,10 +1,12 @@
 import os
 import random
+from typing import Iterable
 
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import yaml
 from torch._functorch.functional_call import functional_call
 from torch._functorch.apis import vmap
@@ -47,6 +49,8 @@ def seed_everything(seed: int):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed)
 
 
 def get_parallel_forward_pass_fn(
@@ -61,3 +65,33 @@ def get_parallel_forward_pass_fn(
 
 def get_not_supported_message(kind: str, not_supported_slug: str):
     return f"{kind} with slug {not_supported_slug} is not supported..."
+
+
+def get_non_evolutionary_optimizer(
+    slug: str,
+    parameters: Iterable[torch.Tensor],
+    lr: float,
+    momentum: float,
+    weight_decay: float,
+) -> optim.Optimizer:
+    if slug == "sgd":
+        return optim.SGD(
+            parameters,
+            lr=lr,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
+    elif slug == "adam":
+        return optim.Adam(
+            parameters,
+            lr=lr,
+            weight_decay=weight_decay,
+        )
+    elif slug == "adamw":
+        return optim.AdamW(
+            parameters,
+            lr=lr,
+            weight_decay=weight_decay,
+        )
+    else:
+        raise ValueError(get_not_supported_message("Non-Evolutionary Optimizer", slug))
