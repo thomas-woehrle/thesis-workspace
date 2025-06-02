@@ -70,7 +70,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
                 device=self.flat_params.device,
                 dtype=self.flat_params.dtype,
             )
-            mutations = torch.concatenate([mutations, mutations], dim=0)
+            mutations = torch.concatenate([mutations, -mutations], dim=0)
         else:
             mutations = param_group["sigma"] * torch.randn(
                 param_group["popsize"],
