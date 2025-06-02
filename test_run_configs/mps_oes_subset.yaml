@@ -1,9 +1,9 @@
 GENERAL_CONFIG:
   WANDB_PROJECT: "thesis_baseline_testruns"
-  DEVICE: "cpu"
+  DEVICE: "mps"
   DTYPE: bfloat16
   SEED: 0
-  NUM_TRAIN_STEPS: 30
+  NUM_TRAIN_STEPS: 50
   TRAIN_INTERVAL_LENGTH: 10
   USE_TORCH_COMPILE: false
 
@@ -24,7 +24,6 @@ TRAINER_CONFIG:
 
 OPTIMIZER_CONFIG:
   OPTIMIZER_SLUG: "openai_evolutionary_optimizer"
-  IS_EVOLUTIONARY: true
   NES_INNER_OPTIMIZER_SLUG: "sgd"
   LR: 0.001
   POPSIZE: 10

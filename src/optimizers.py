@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import utils
+
 
 class EvolutionaryOptimizer(ABC, optim.Optimizer):
     def __init__(self, params: Iterable[torch.Tensor], lr: float, popsize: int, **kwargs):
@@ -27,11 +29,12 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
         params: Iterable[torch.Tensor],
-        # lr not actually needed, because of inner optimizer
         lr: float,
         popsize: int,
         sigma: float,
-        inner_optimizer: optim.Optimizer,
+        inner_optimizer_slug: str,
+        momentum: float,
+        weight_decay: float,
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
     ):
@@ -48,9 +51,9 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
 
         self.flat_params = nn.utils.parameters_to_vector(params)
 
-        # the inner optimizer should be a normal optimizer, ie not evolutionary
-        assert not isinstance(inner_optimizer, EvolutionaryOptimizer)
-        self.inner_optimizer = inner_optimizer
+        self.inner_optimizer = utils.get_non_evolutionary_optimizer(
+            inner_optimizer_slug, params, lr, momentum, weight_decay
+        )
 
         # nullify params.grad, because they start out as 'None'
         for p in params:
