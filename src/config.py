@@ -229,17 +229,6 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
                 use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
                 use_rank_transform=config.USE_RANK_TRANSFORM,
             )
-        elif config.OPTIMIZER_SLUG == "simple_evolutionary_optimizer":
-            assert config.POPSIZE is not None
-            assert config.SIGMA is not None
-            assert config.NUM_FAMILIES is not None
-            return optimizers.SimpleEvolutionaryOptimizer(
-                model.parameters(),
-                popsize=config.POPSIZE,
-                sigma=config.SIGMA,
-                lr=config.LR,
-                num_families=config.NUM_FAMILIES,
-            )
         else:
             raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))
     else:
