@@ -165,7 +165,9 @@ class SNESOptimizer(EvolutionaryOptimizer):
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
             losses = losses.to(self.flat_params.dtype)
 
+        # normalize losses
         normalized_losses = (losses - losses.mean()) / losses.std()
+
         flat_params_grad = ((mutations / self.sigma).T @ normalized_losses).flatten()
         flat_params_grad /= self.popsize
         flat_params_grad *= self.sigma
@@ -179,7 +181,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.inner_optimizer.step()
 
         # update sigma manually
-        self.sigma *= torch.exp((self.sigma_lr / 2) * sigma_grad)
+        self.sigma *= torch.exp(-(self.sigma_lr / 2) * sigma_grad)
 
         # load updated flat params into original params
         nn.utils.vector_to_parameters(self.flat_params, self.original_unflattened_params)
