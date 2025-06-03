@@ -123,7 +123,7 @@ class EvolutionaryTrainer(Trainer):
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
-        self.popsize = self.optimizer.param_groups[0]["popsize"]
+        self.popsize = self.optimizer.popsize
         self.batched_named_buffers = {
             n: torch.stack([b] * self.popsize, dim=0) for n, b in self.model.named_buffers()
         }
