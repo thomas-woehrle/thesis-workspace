@@ -203,7 +203,7 @@ class OptimizerConfig:
     WEIGHT_DECAY: float = 0.0
     MOMENTUM: float = 0.0
     POPSIZE: Optional[int] = None
-    SIGMA: Optional[float] = None
+    SIGMA_INIT: Optional[float] = None
     USE_ANTITHETIC_SAMPLING: Optional[bool] = False
     NUM_FAMILIES: Optional[int] = None
     USE_RANK_TRANSFORM: Optional[bool] = None
@@ -213,7 +213,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
     if config.IS_EVOLUTIONARY:
         if config.OPTIMIZER_SLUG == "openai_evolutionary_optimizer":
             assert config.POPSIZE is not None
-            assert config.SIGMA is not None
+            assert config.SIGMA_INIT is not None
             assert config.NES_INNER_OPTIMIZER_SLUG is not None
             assert config.USE_ANTITHETIC_SAMPLING is not None
             assert config.USE_RANK_TRANSFORM is not None
@@ -221,7 +221,25 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             return optimizers.OpenAIEvolutionaryOptimizer(
                 model.parameters(),
                 popsize=config.POPSIZE,
-                sigma=config.SIGMA,
+                sigma=config.SIGMA_INIT,
+                lr=config.LR,
+                inner_optimizer_slug=config.NES_INNER_OPTIMIZER_SLUG,
+                momentum=config.MOMENTUM,
+                weight_decay=config.WEIGHT_DECAY,
+                use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+                use_rank_transform=config.USE_RANK_TRANSFORM,
+            )
+        elif config.OPTIMIZER_SLUG == "snes_optimizer":
+            assert config.POPSIZE is not None
+            assert config.SIGMA_INIT is not None
+            assert config.NES_INNER_OPTIMIZER_SLUG is not None
+            assert config.USE_ANTITHETIC_SAMPLING is not None
+            assert config.USE_RANK_TRANSFORM is not None
+
+            return optimizers.SNESOptimizer(
+                model.parameters(),
+                popsize=config.POPSIZE,
+                sigma_init=config.SIGMA_INIT,
                 lr=config.LR,
                 inner_optimizer_slug=config.NES_INNER_OPTIMIZER_SLUG,
                 momentum=config.MOMENTUM,
