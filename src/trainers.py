@@ -68,7 +68,7 @@ class Trainer(ABC):
 
         if self.lr_scheduler:
             self.logger.log(
-                {"debug/lr": self.lr_scheduler.get_last_lr()[0]}, start_train_step + num_steps - 1
+                {"info/lr": self.lr_scheduler.get_last_lr()[0]}, start_train_step + num_steps - 1
             )
 
 
@@ -184,3 +184,10 @@ class EvolutionaryTrainer(Trainer):
         ):
             named_buffers = {n: b[0] for n, b in self.batched_named_buffers.items()}
             self.model.load_state_dict(named_buffers, strict=False)
+
+        sigma_mean = (
+            self.optimizer.sigma.mean()
+            if isinstance(self.optimizer.sigma, torch.Tensor)
+            else self.optimizer.sigma
+        )
+        self.logger.log({"info/sigma_mean": sigma_mean}, start_train_step + num_steps - 1)
