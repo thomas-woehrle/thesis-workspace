@@ -9,6 +9,7 @@ import utils
 
 class EvolutionaryOptimizer(ABC, optim.Optimizer):
     popsize: int
+    sigma: float | torch.Tensor
 
     @abstractmethod
     def get_new_generation(
@@ -127,7 +128,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         # afaict, the sigma can not be updated by standard optimizers, because of the local coordinate nature
         self.sigma = torch.ones_like(self.flat_params) * sigma_init
         # TODO remove this hardcoding
-        self.sigma_lr = 1
+        self.sigma_lr = 0
 
         # nullify .grad, because they might start out as 'None'
         for p in self.original_unflattened_params:
