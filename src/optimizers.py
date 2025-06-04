@@ -85,13 +85,18 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
             losses = losses.to(self.flat_params.dtype)
 
+        # normalize losses
         normalized_losses = (losses - losses.mean()) / losses.std()
-        g_hat = ((mutations.T / self.sigma) @ normalized_losses).flatten()
-        g_hat = g_hat / (self.popsize * self.sigma)
+
+        # this is what is originally sampled from a gaussian; the s_k in the paper
+        normalized_mutations = mutations / self.sigma
+
+        flat_params_grad = (normalized_mutations.T @ normalized_losses).flatten() / self.popsize
+        flat_params_grad *= self.sigma
 
         # load gradients into .grad fields and step the inner optimizer
         self.inner_optimizer.zero_grad(set_to_none=False)
-        self.flat_params.grad = g_hat
+        self.flat_params.grad = flat_params_grad
         self.inner_optimizer.step()
 
         # load updated flat params into original params
