@@ -199,6 +199,7 @@ class OptimizerConfig:
     OPTIMIZER_SLUG: str
     IS_EVOLUTIONARY: bool
     LR: float
+    SIGMA_LR: Optional[float] = None
     NES_INNER_OPTIMIZER_SLUG: Optional[str] = None
     WEIGHT_DECAY: float = 0.0
     MOMENTUM: float = 0.0
@@ -235,12 +236,14 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             assert config.NES_INNER_OPTIMIZER_SLUG is not None
             assert config.USE_ANTITHETIC_SAMPLING is not None
             assert config.USE_RANK_TRANSFORM is not None
+            assert config.SIGMA_LR is not None
 
             return optimizers.SNESOptimizer(
                 model.parameters(),
                 popsize=config.POPSIZE,
                 sigma_init=config.SIGMA_INIT,
                 lr=config.LR,
+                sigma_lr=config.SIGMA_LR,
                 inner_optimizer_slug=config.NES_INNER_OPTIMIZER_SLUG,
                 momentum=config.MOMENTUM,
                 weight_decay=config.WEIGHT_DECAY,

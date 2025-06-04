@@ -108,6 +108,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self,
         params: Iterable[torch.Tensor],
         lr: float,
+        sigma_lr: float,
         popsize: int,
         sigma_init: float,
         inner_optimizer_slug: str,
@@ -122,18 +123,18 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.use_antithetic_sampling = use_antithetic_sampling
         self.use_rank_transform = use_rank_transform
 
-        # TODO create proper param_groups and pass them to the optimizer instead
         self.flat_params = nn.utils.parameters_to_vector(self.original_unflattened_params).detach()
         self.inner_optimizer = utils.get_non_evolutionary_optimizer(
             inner_optimizer_slug, [self.flat_params], lr, momentum, weight_decay
         )
         # expose the inner_optimizer param_groups to the outside, f.e. for lr scheduler
+        # TODO create proper param_groups and pass them to the optimizer instead
         self.param_groups = self.inner_optimizer.param_groups
 
-        # afaict, the sigma can not be updated by standard optimizers, because of the local coordinate nature
+        # the sigma can not be updated by standard optimizers, because of the local coordinate nature
+        # hence, it is not passed to the inner_optimizer above
         self.sigma = torch.ones_like(self.flat_params) * sigma_init
-        # TODO remove this hardcoding
-        self.sigma_lr = 0
+        self.sigma_lr = sigma_lr
 
         # nullify .grad, because they might start out as 'None'
         for p in self.original_unflattened_params:
