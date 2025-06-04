@@ -94,6 +94,8 @@ if __name__ == "__main__":
     run_config = utils.load_config_from_file(config_file_path)
 
     with wandb.init(
-        project=run_config.general_config.WANDB_PROJECT, config=asdict(run_config)
+        project=run_config.general_config.WANDB_PROJECT,
+        config=asdict(run_config),
+        mode="online" if run_config.general_config.WANDB_PROJECT is not None else "offline",
     ) as wandb_run:
         run_training(run_config, wandb_run)
