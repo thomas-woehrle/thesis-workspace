@@ -127,7 +127,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         # afaict, the sigma can not be updated by standard optimizers, because of the local coordinate nature
         self.sigma = torch.ones_like(self.flat_params) * sigma_init
         # TODO remove this hardcoding
-        self.sigma_lr = 0.001
+        self.sigma_lr = 1
 
         # nullify .grad, because they might start out as 'None'
         for p in self.original_unflattened_params:
@@ -159,7 +159,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         return batched_mutated_flat_params, mutations
 
     def step(self, losses: torch.Tensor, mutations: torch.Tensor):
-        # losses of shape popsize x 1
+        # losses of shape (popsize, )
         # estimate gradients
         if self.use_rank_transform:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
@@ -168,19 +168,22 @@ class SNESOptimizer(EvolutionaryOptimizer):
         # normalize losses
         normalized_losses = (losses - losses.mean()) / losses.std()
 
-        flat_params_grad = ((mutations / self.sigma).T @ normalized_losses).flatten()
-        flat_params_grad /= self.popsize
+        # this is what is originally sampled from a gaussian; the s_k in the paper
+        normalized_mutations = mutations / self.sigma
+
+        flat_params_grad = (normalized_mutations.T @ normalized_losses).flatten() / self.popsize
         flat_params_grad *= self.sigma
 
-        sigma_grad = ((((mutations / self.sigma) ** 2) - 1).T @ normalized_losses).flatten()
-        sigma_grad /= self.popsize
+        sigma_grad = (
+            ((normalized_mutations**2) - 1).T @ normalized_losses
+        ).flatten() / self.popsize
 
         # update flat_params using inner optimizer
         self.inner_optimizer.zero_grad(set_to_none=False)
         self.flat_params.grad = flat_params_grad
         self.inner_optimizer.step()
 
-        # update sigma manually
+        # update sigma manually; '-' because we want to go in opposite direction of gradient
         self.sigma *= torch.exp(-(self.sigma_lr / 2) * sigma_grad)
 
         # load updated flat params into original params
