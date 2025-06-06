@@ -28,7 +28,7 @@ def run_training(
 
     # Get model
     model = config.get_model(run_config.model_config, is_cifar10=run_config.data_config.IS_CIFAR10)
-    model.to(device=run_config.general_config.DEVICE, dtype=run_config.general_config.DTYPE)
+    model.to(device=run_config.general_config.DEVICE)
 
     # Get optimizer
     optimizer = config.get_optimizer(run_config.optimizer_config, model)
@@ -50,6 +50,7 @@ def run_training(
         use_instance_norm=run_config.model_config.USE_INSTANCE_NORM,
         bn_track_running_stats=run_config.model_config.BN_TRACK_RUNNING_STATS,
         use_torch_compile=run_config.general_config.USE_TORCH_COMPILE,
+        mp_dtype=run_config.general_config.MP_DTYPE,
     )
 
     # Get evaluator

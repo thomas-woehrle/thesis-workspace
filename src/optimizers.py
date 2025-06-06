@@ -62,7 +62,6 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
                 self.popsize // 2,
                 len(self.flat_params),
                 device=self.flat_params.device,
-                dtype=self.flat_params.dtype,
             )
             mutations = torch.concatenate([mutations, -mutations], dim=0)
         else:
@@ -70,7 +69,6 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
                 self.popsize,
                 len(self.flat_params),
                 device=self.flat_params.device,
-                dtype=self.flat_params.dtype,
             )
 
         # '+' operation broadcasts to (popsize, num_params)
@@ -83,7 +81,6 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         # estimate gradients
         if self.use_rank_transform:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
-            losses = losses.to(self.flat_params.dtype)
 
         # normalize losses
         normalized_losses = (losses - losses.mean()) / losses.std()
@@ -149,7 +146,6 @@ class SNESOptimizer(EvolutionaryOptimizer):
                 self.popsize // 2,
                 len(self.flat_params),
                 device=self.flat_params.device,
-                dtype=self.flat_params.dtype,
             )
             mutations = torch.concatenate([mutations, -mutations], dim=0)
         else:
@@ -157,7 +153,6 @@ class SNESOptimizer(EvolutionaryOptimizer):
                 self.popsize,
                 len(self.flat_params),
                 device=self.flat_params.device,
-                dtype=self.flat_params.dtype,
             )
 
         # '+' operation broadcasts to (popsize, num_params)
@@ -170,7 +165,6 @@ class SNESOptimizer(EvolutionaryOptimizer):
         # estimate gradients
         if self.use_rank_transform:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
-            losses = losses.to(self.flat_params.dtype)
 
         # normalize losses
         normalized_losses = (losses - losses.mean()) / losses.std()

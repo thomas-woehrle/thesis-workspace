@@ -34,9 +34,8 @@ class Evaluator1:
         x, y = (
             x.to(
                 device=next(self.model.parameters()).device,
-                dtype=next(self.model.parameters()).dtype,
             ),
-            y.to(device=next(self.model.parameters()).device, dtype=torch.long),
+            y.to(device=next(self.model.parameters()).device),
         )
 
         y_hat = self.model(x)

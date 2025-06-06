@@ -21,7 +21,7 @@ def load_config_from_file(file_path: str) -> "config.RunConfig":
     # Create dataclass instances from config dictionary
     general_config_dict = config_dict.get("GENERAL_CONFIG", {})
     general_config_dict["DEVICE"] = torch.device(general_config_dict.get("DEVICE", "cpu"))
-    general_config_dict["DTYPE"] = getattr(torch, general_config_dict.get("DTYPE", "float32"))
+    general_config_dict["MP_DTYPE"] = getattr(torch, general_config_dict.get("MP_DTYPE", "float32"))
     general_config = config.GeneralConfig(**general_config_dict)
 
     model_config = config.ModelConfig(**config_dict.get("MODEL_CONFIG", {}))
