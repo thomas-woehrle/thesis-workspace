@@ -5,10 +5,18 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "numpy>=2.2.5",
+    "numpy",
     "pyyaml>=6.0.2",
-    "torch==2.6.0",
+    "torch",
     "torchvision>=0.21.0",
-    "tqdm>=4.67.1",
+    "tqdm",
     "wandb>=0.19.11",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch_nigthly" }
+torchvision = { index = "pytorch_nigthly" }
+
+[[tool.uv.index]]
+name = "pytorch_nigthly"
+url = "https://download.pytorch.org/whl/nightly/cu128"
