@@ -14,9 +14,6 @@ def run_training(
     run_config: config.RunConfig,
     wand_run: wandb.wandb_run.Run,
 ):
-    if run_config.general_config.DTYPE == torch.float32:
-        torch.set_float32_matmul_precision('high')
-
     # Seed
     if run_config.general_config.SEED is not None:
         utils.seed_everything(run_config.general_config.SEED)
