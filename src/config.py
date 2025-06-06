@@ -25,7 +25,7 @@ import trainers
 class GeneralConfig:
     WANDB_PROJECT: str
     DEVICE: torch.device
-    DTYPE: torch.dtype
+    MP_DTYPE: torch.dtype
     SEED: Optional[int]
     NUM_TRAIN_STEPS: int
     TRAIN_INTERVAL_LENGTH: int
@@ -159,6 +159,7 @@ def get_trainer(
     use_instance_norm: bool,
     bn_track_running_stats: bool,
     use_torch_compile: Optional[bool],
+    mp_dtype: torch.dtype,
 ) -> trainers.Trainer:
     criterion = nn.CrossEntropyLoss()
 
@@ -174,6 +175,7 @@ def get_trainer(
             use_parallel_forward_pass=config.USE_PARALLEL_FORWARD_PASS,
             bn_track_running_stats=bn_track_running_stats,
             use_instance_norm=use_instance_norm,
+            mp_dtype=mp_dtype,
             logger=logger,
             use_torch_compile=use_torch_compile,
         )
@@ -184,6 +186,7 @@ def get_trainer(
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             criterion=criterion,
+            mp_dtype=mp_dtype,
             logger=logger,
         )
     # elif trainer_slug == "simple_evolutionary_trainer":
