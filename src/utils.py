@@ -59,6 +59,7 @@ def save_checkpoint(
     lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
     train_step: int,
     ckpt_path: str,
+    dataloader_generator: Optional[torch.Generator] = None,
 ):
     os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
     checkpoint = {
@@ -69,6 +70,9 @@ def save_checkpoint(
         "torch_rng_state": torch.get_rng_state(),
         "numpy_rng_state": np.random.get_state(),
         "random_rng_state": random.getstate(),
+        "dataloader_generator_rng_state": dataloader_generator.get_state()
+        if dataloader_generator
+        else None,
     }
     torch.save(checkpoint, ckpt_path)
 
@@ -87,11 +91,14 @@ def load_checkpoint(
     if lr_scheduler and checkpoint["lr_scheduler_state_dict"]:
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
 
-    torch.set_rng_state(checkpoint["torch_rng_state"].to(device="cpu", dtype=torch.uint8))
+    # Restore RNG states
+    torch.set_rng_state(checkpoint["torch_rng_state"].to(dtype=torch.uint8, device="cpu"))
     np.random.set_state(checkpoint["numpy_rng_state"])
     random.setstate(checkpoint["random_rng_state"])
 
-    return checkpoint["train_step"]
+    return checkpoint["train_step"], checkpoint["dataloader_generator_rng_state"].to(
+        dtype=torch.uint8, device="cpu"
+    )
 
 
 def get_parallel_forward_pass_fn(

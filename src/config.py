@@ -53,7 +53,10 @@ CIFAR100_STD = (0.2673, 0.2564, 0.2762)
 
 
 def get_cifar_dataloader(
-    config: DataConfig, is_train: bool, num_train_steps: Optional[int] = None
+    config: DataConfig,
+    is_train: bool,
+    num_train_steps: Optional[int] = None,
+    generator: Optional[torch.Generator] = None,
 ) -> DataLoader:
     train_transforms = (
         transforms.Compose(
@@ -102,7 +105,10 @@ def get_cifar_dataloader(
             dataset=dataset,
             batch_size=config.BATCH_SIZE,
             sampler=RandomSampler(
-                dataset, replacement=False, num_samples=config.BATCH_SIZE * num_train_steps
+                dataset,
+                replacement=False,
+                num_samples=config.BATCH_SIZE * num_train_steps,
+                generator=generator,
             ),
             num_workers=config.NUM_WORKERS,
             pin_memory=True,
