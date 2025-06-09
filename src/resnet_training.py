@@ -14,17 +14,13 @@ def run_training(
     run_config: config.RunConfig,
     wand_run: wandb.wandb_run.Run,
 ):
+    # Create a dedicated generator for the dataloader, which must be on CPU
+    dataloader_generator = torch.Generator(device="cpu")
+
     # Seed
     if run_config.general_config.SEED is not None:
         utils.seed_everything(run_config.general_config.SEED)
-
-    # Get dataloaders
-    train_dataloader = config.get_cifar_dataloader(
-        run_config.data_config,
-        is_train=True,
-        num_train_steps=run_config.general_config.NUM_TRAIN_STEPS,
-    )
-    val_dataloader = config.get_cifar_dataloader(run_config.data_config, is_train=False)
+        dataloader_generator.manual_seed(run_config.general_config.SEED)
 
     # Get model
     model = config.get_model(run_config.model_config, is_cifar10=run_config.data_config.IS_CIFAR10)
@@ -33,23 +29,31 @@ def run_training(
     # Get optimizer
     optimizer = config.get_optimizer(run_config.optimizer_config, model)
 
-    # Get logger
-    logger = loggers.Logger(wand_run)
-
     # Get lr scheduler
     lr_scheduler = config.get_lr_scheduler(run_config.lr_scheduler_config, optimizer)
 
     # Resume from checkpoint if path is provided
     if run_config.general_config.RESUME_FROM_CKPT_PATH:
-        train_step = utils.load_checkpoint(
+        train_step, dataloader_rng_state = utils.load_checkpoint(
             model, optimizer, lr_scheduler, run_config.general_config.RESUME_FROM_CKPT_PATH
         )
-        # Fast-forward dataloader to the correct batch
-        for _ in range(train_step - 1):
-            next(iter(train_dataloader))
+        if dataloader_rng_state is not None:
+            dataloader_generator.set_state(dataloader_rng_state)
     else:
         # train_step is 1-indexed, because that makes the results more interpretable
         train_step = 1
+
+    # Get dataloaders
+    train_dataloader = config.get_cifar_dataloader(
+        run_config.data_config,
+        is_train=True,
+        num_train_steps=run_config.general_config.NUM_TRAIN_STEPS,
+        generator=dataloader_generator,
+    )
+    val_dataloader = config.get_cifar_dataloader(run_config.data_config, is_train=False)
+
+    # Get logger
+    logger = loggers.Logger(wand_run)
 
     # Get trainer
     trainer = config.get_trainer(
@@ -102,7 +106,9 @@ def run_training(
             and interval_num % run_config.general_config.CKPT_EVERY_NTH_INTERVAL == 0
         ):
             ckpt_path = f"{run_config.general_config.CKPT_PATH}/{wand_run.id}/ckpt_interval_{interval_num}.pt"
-            utils.save_checkpoint(model, optimizer, lr_scheduler, train_step, ckpt_path)
+            utils.save_checkpoint(
+                model, optimizer, lr_scheduler, train_step, ckpt_path, dataloader_generator
+            )
 
         interval_num += 1
 
