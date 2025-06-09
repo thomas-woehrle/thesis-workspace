@@ -71,13 +71,16 @@ class Trainer(ABC):
 
 
 class BackpropagationTrainer(Trainer):
-    optimizer: optim.Optimizer
-
     def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
         self.optimizer.zero_grad()
 
-        y_hat = self.model(x)
-        loss = self.criterion(y_hat, y)
+        with torch.autocast(
+            device_type=next(self.model.parameters()).device.type,
+            dtype=self.mp_dtype,
+            enabled=self.mp_dtype != torch.float32,
+        ):
+            y_hat = self.model(x)
+            loss = self.criterion(y_hat, y)
 
         loss.backward()
         self.optimizer.step()
