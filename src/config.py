@@ -30,6 +30,9 @@ class GeneralConfig:
     NUM_TRAIN_STEPS: int
     TRAIN_INTERVAL_LENGTH: int
     USE_TORCH_COMPILE: bool
+    CKPT_PATH: Optional[str] = None
+    CKPT_EVERY_NTH_INTERVAL: Optional[int] = None
+    RESUME_FROM_CKPT_PATH: Optional[str] = None
 
 
 # --- Data ---
