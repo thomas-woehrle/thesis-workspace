@@ -35,8 +35,10 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
     ):
+        defaults = {}
+        super().__init__(params, defaults)
         # turning into a list because params might be Iterator
-        self.original_unflattened_params = list(params)
+        self.original_unflattened_params = list(self.param_groups[0]["params"])
         self.sigma = sigma
         self.popsize = popsize
         self.use_antithetic_sampling = use_antithetic_sampling
@@ -114,8 +116,10 @@ class SNESOptimizer(EvolutionaryOptimizer):
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
     ):
+        defaults = {}
+        super().__init__(params, defaults)
         # turning into a list because params might be Iterator
-        self.original_unflattened_params = list(params)
+        self.original_unflattened_params = list(self.param_groups[0]["params"])
         self.popsize = popsize
         self.use_antithetic_sampling = use_antithetic_sampling
         self.use_rank_transform = use_rank_transform
@@ -127,6 +131,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         # expose the inner_optimizer param_groups to the outside, f.e. for lr scheduler
         # TODO create proper param_groups and pass them to the optimizer instead
         self.param_groups = self.inner_optimizer.param_groups
+        self.state = self.inner_optimizer.state
 
         # the sigma can not be updated by standard optimizers, because of the local coordinate nature
         # hence, it is not passed to the inner_optimizer above
@@ -134,6 +139,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.sigma_lr = sigma_lr
 
         # nullify .grad, because they might start out as 'None'
+        # TODO is this really needed still?
         for p in self.original_unflattened_params:
             p.grad = torch.zeros_like(p)
 
