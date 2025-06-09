@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import tqdm
+import wandb
 from torch.utils.data import DataLoader
 from torch._functorch.apis import vmap
 
@@ -201,3 +202,8 @@ class EvolutionaryTrainer(Trainer):
             else self.optimizer.sigma
         )
         self.logger.log({"info/sigma_mean": sigma_mean}, start_train_step + num_steps - 1)
+        if isinstance(self.optimizer.sigma, torch.Tensor):
+            self.logger.log(
+                {"info/sigma distribution": wandb.Histogram(self.optimizer.sigma.tolist())},
+                start_train_step + num_steps - 1,
+            )
