@@ -87,7 +87,7 @@ def load_checkpoint(
     if lr_scheduler and checkpoint["lr_scheduler_state_dict"]:
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
 
-    torch.set_rng_state(checkpoint["torch_rng_state"])
+    torch.set_rng_state(checkpoint["torch_rng_state"].to(device="cpu", dtype=torch.uint8))
     np.random.set_state(checkpoint["numpy_rng_state"])
     random.setstate(checkpoint["random_rng_state"])
 
