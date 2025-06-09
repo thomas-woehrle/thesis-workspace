@@ -39,6 +39,18 @@ def run_training(
     # Get lr scheduler
     lr_scheduler = config.get_lr_scheduler(run_config.lr_scheduler_config, optimizer)
 
+    # Resume from checkpoint if path is provided
+    if run_config.general_config.RESUME_FROM_CKPT_PATH:
+        train_step = utils.load_checkpoint(
+            model, optimizer, lr_scheduler, run_config.general_config.RESUME_FROM_CKPT_PATH
+        )
+        # Fast-forward dataloader to the correct batch
+        for _ in range(train_step - 1):
+            next(iter(train_dataloader))
+    else:
+        # train_step is 1-indexed, because that makes the results more interpretable
+        train_step = 1
+
     # Get trainer
     trainer = config.get_trainer(
         config=run_config.trainer_config,
@@ -73,8 +85,7 @@ def run_training(
             model.compile()
 
     # Run Training
-    # train_step is 1-indexed, because that makes the results more interpretable
-    train_step = 1
+    interval_num = 1
     while train_step <= run_config.general_config.NUM_TRAIN_STEPS:
         num_steps = min(
             run_config.general_config.TRAIN_INTERVAL_LENGTH,
@@ -84,6 +95,16 @@ def run_training(
         trainer.train(train_step, num_steps=num_steps)
         train_step += run_config.general_config.TRAIN_INTERVAL_LENGTH
         evaluator.eval(train_step - 1)
+
+        # Checkpoint
+        if (
+            run_config.general_config.CKPT_EVERY_NTH_INTERVAL is not None
+            and interval_num % run_config.general_config.CKPT_EVERY_NTH_INTERVAL == 0
+        ):
+            ckpt_path = f"{run_config.general_config.CKPT_PATH}/{wand_run.id}/ckpt_interval_{interval_num}.pt"
+            utils.save_checkpoint(model, optimizer, lr_scheduler, train_step, ckpt_path)
+
+        interval_num += 1
 
 
 if __name__ == "__main__":

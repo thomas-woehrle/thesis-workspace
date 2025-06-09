@@ -1,6 +1,6 @@
 import os
 import random
-from typing import Iterable
+from typing import Iterable, Optional
 
 
 import numpy as np
@@ -51,6 +51,47 @@ def seed_everything(seed: int):
     torch.manual_seed(seed)
     if torch.backends.mps.is_available():
         torch.mps.manual_seed(seed)
+
+
+def save_checkpoint(
+    model: nn.Module,
+    optimizer: optim.Optimizer,
+    lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
+    train_step: int,
+    ckpt_path: str,
+):
+    os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "lr_scheduler_state_dict": lr_scheduler.state_dict() if lr_scheduler else None,
+        "train_step": train_step,
+        "torch_rng_state": torch.get_rng_state(),
+        "numpy_rng_state": np.random.get_state(),
+        "random_rng_state": random.getstate(),
+    }
+    torch.save(checkpoint, ckpt_path)
+
+
+def load_checkpoint(
+    model: nn.Module,
+    optimizer: optim.Optimizer,
+    lr_scheduler: Optional[optim.lr_scheduler.LRScheduler],
+    ckpt_path: str,
+):
+    checkpoint = torch.load(
+        ckpt_path, map_location=next(model.parameters()).device, weights_only=False
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if lr_scheduler and checkpoint["lr_scheduler_state_dict"]:
+        lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state_dict"])
+
+    torch.set_rng_state(checkpoint["torch_rng_state"])
+    np.random.set_state(checkpoint["numpy_rng_state"])
+    random.setstate(checkpoint["random_rng_state"])
+
+    return checkpoint["train_step"]
 
 
 def get_parallel_forward_pass_fn(
