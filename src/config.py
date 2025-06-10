@@ -156,6 +156,7 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
 @dataclass
 class TrainerConfig:
     USE_PARALLEL_FORWARD_PASS: Optional[bool] = False
+    DO_ADAPTION_SAMPLING_EVERY_NTH_STEP: Optional[int] = None
 
 
 def get_trainer(
@@ -187,6 +188,7 @@ def get_trainer(
             mp_dtype=mp_dtype,
             logger=logger,
             use_torch_compile=use_torch_compile,
+            do_adaptation_sampling_every_nth_step=config.DO_ADAPTION_SAMPLING_EVERY_NTH_STEP,
         )
     else:
         return trainers.BackpropagationTrainer(
@@ -221,6 +223,7 @@ class OptimizerConfig:
     USE_ANTITHETIC_SAMPLING: Optional[bool] = False
     NUM_FAMILIES: Optional[int] = None
     USE_RANK_TRANSFORM: Optional[bool] = None
+    ADAPTATION_SAMPLING_FACTOR: Optional[float] = None
 
 
 def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
@@ -263,6 +266,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
                 sigma_lr=config.SIGMA_LR,
                 use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
                 use_rank_transform=config.USE_RANK_TRANSFORM,
+                adaptation_sampling_factor=config.ADAPTATION_SAMPLING_FACTOR,
             )
         else:
             raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))

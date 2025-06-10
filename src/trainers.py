@@ -35,7 +35,7 @@ class Trainer(ABC):
         self.logger = logger
 
     @abstractmethod
-    def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, step: int) -> torch.Tensor | float:
         """Can return float or tensor. Tensor should be preferred if train_epoch uses it as tensor anyway,
         which will often be the case. Reason is that the .item() conversion blocks the GPU for a very short piece of time."""
         raise NotImplementedError()
@@ -57,7 +57,7 @@ class Trainer(ABC):
                 ),
                 y.to(device=next(self.model.parameters()).device, non_blocking=True),
             )
-            losses[i] = self.train_step(x, y)
+            losses[i] = self.train_step(x, y, i)
 
             if self.lr_scheduler:
                 self.lr_scheduler.step()
@@ -109,6 +109,7 @@ class EvolutionaryTrainer(Trainer):
         mp_dtype: torch.dtype,
         logger: loggers.Logger,
         use_torch_compile: bool,
+        do_adaptation_sampling_every_nth_step: Optional[int],
     ):
         super().__init__(
             model=model,
@@ -124,6 +125,8 @@ class EvolutionaryTrainer(Trainer):
         if use_torch_compile:
             self.parallel_forward_pass_fn = torch.compile(self.parallel_forward_pass_fn)
 
+        self.do_adaptation_sampling_every_nth_step = do_adaptation_sampling_every_nth_step
+
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
         self.batched_criterion = vmap(self.criterion, in_dims=(0, None))
@@ -134,7 +137,9 @@ class EvolutionaryTrainer(Trainer):
             for n, b in self.model.named_buffers()
         }
 
-    def _get_batched_named_params(self, batched_flat_params: torch.Tensor, popsize: int):
+    def _get_batched_named_params(
+        self, batched_flat_params: torch.Tensor, popsize: int
+    ) -> dict[str, torch.Tensor]:
         batched_flat_params_split = batched_flat_params.split(
             [p.numel() for p in self.model.parameters()], dim=1
         )
@@ -148,13 +153,17 @@ class EvolutionaryTrainer(Trainer):
 
         return batched_named_params
 
-    def train_step(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor | float:
-        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
+    def _run_adaptation_sampling(self):
+        pass
+
+    def _get_losses(
+        self, batched_flat_params: torch.Tensor, x: torch.Tensor, y: torch.Tensor
+    ) -> torch.Tensor:
         mutated_batched_named_params = self._get_batched_named_params(
-            mutated_batched_flat_params, self.popsize
+            batched_flat_params, self.popsize
         )
 
-        popsize = mutations.shape[0]
+        popsize = batched_flat_params.shape[0]
 
         with torch.autocast(
             device_type=next(self.model.parameters()).device.type,
@@ -171,16 +180,26 @@ class EvolutionaryTrainer(Trainer):
             else:
                 losses = torch.zeros(
                     popsize,
-                    device=mutated_batched_flat_params.device,
+                    device=batched_flat_params.device,
                 )
 
                 for i in range(popsize):
-                    nn.utils.vector_to_parameters(
-                        mutated_batched_flat_params[i], self.model.parameters()
-                    )
+                    nn.utils.vector_to_parameters(batched_flat_params[i], self.model.parameters())
                     y_hat = self.model(x)
                     # Convert to full precision for loss computation to ensure numerical stability
                     losses[i] = self.criterion(y_hat.float(), y)
+
+        return losses
+
+    def train_step(self, x: torch.Tensor, y: torch.Tensor, step: int) -> torch.Tensor | float:
+        if (
+            self.do_adaptation_sampling_every_nth_step is not None
+            and step % self.do_adaptation_sampling_every_nth_step == 0
+        ):
+            self._run_adaptation_sampling()
+
+        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
+        losses = self._get_losses(mutated_batched_flat_params, x, y)
 
         self.optimizer.step(losses, mutations)
         return losses.mean()
