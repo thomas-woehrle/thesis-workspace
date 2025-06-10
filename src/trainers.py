@@ -159,6 +159,7 @@ class EvolutionaryTrainer(Trainer):
         with torch.autocast(
             device_type=next(self.model.parameters()).device.type,
             dtype=self.mp_dtype,
+            enabled=self.mp_dtype != torch.float32,
         ):
             if self.use_parallel_forward_pass:
                 y_hat = self.parallel_forward_pass_fn(
