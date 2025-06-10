@@ -8,6 +8,7 @@ import tqdm
 import wandb
 from torch.utils.data import DataLoader
 from torch._functorch.apis import vmap
+from scipy.stats import mannwhitneyu
 
 import loggers
 import optimizers
@@ -57,7 +58,7 @@ class Trainer(ABC):
                 ),
                 y.to(device=next(self.model.parameters()).device, non_blocking=True),
             )
-            losses[i] = self.train_step(x, y, i)
+            losses[i] = self.train_step(x, y, start_train_step + i)
 
             if self.lr_scheduler:
                 self.lr_scheduler.step()
@@ -110,6 +111,7 @@ class EvolutionaryTrainer(Trainer):
         logger: loggers.Logger,
         use_torch_compile: bool,
         do_adaptation_sampling_every_nth_step: Optional[int],
+        adaptation_sampling_p_value_threshold: Optional[float],
     ):
         super().__init__(
             model=model,
@@ -126,6 +128,7 @@ class EvolutionaryTrainer(Trainer):
             self.parallel_forward_pass_fn = torch.compile(self.parallel_forward_pass_fn)
 
         self.do_adaptation_sampling_every_nth_step = do_adaptation_sampling_every_nth_step
+        self.adaptation_sampling_p_value_threshold = adaptation_sampling_p_value_threshold
 
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
@@ -153,8 +156,29 @@ class EvolutionaryTrainer(Trainer):
 
         return batched_named_params
 
-    def _run_adaptation_sampling(self):
-        pass
+    def _evaluate_adaptation_sampling(
+        self, x: torch.Tensor, y: torch.Tensor, losses_current_sigma: torch.Tensor, step: int
+    ):
+        if not isinstance(self.optimizer, optimizers.SNESOptimizer):
+            return
+
+        params_adapted, _ = self.optimizer.get_new_generation(from_adaptation_sampled_sigma=True)
+        losses_adapted = self._get_losses(params_adapted, x, y)
+
+        p_value = mannwhitneyu(
+            losses_adapted.cpu().numpy(),
+            losses_current_sigma.cpu().numpy(),
+            alternative="less",
+        )[1]
+
+        self.logger.log({"info/as_p_value": p_value}, step)
+
+        if p_value < self.adaptation_sampling_p_value_threshold:
+            # aggressive update was good, increase lr
+            self.optimizer.sigma_param_group["lr"] *= self.optimizer.adaptation_sampling_c_prime
+        else:
+            # aggressive update was bad, decrease lr
+            self.optimizer.sigma_param_group["lr"] /= self.optimizer.adaptation_sampling_c_prime
 
     def _get_losses(
         self, batched_flat_params: torch.Tensor, x: torch.Tensor, y: torch.Tensor
@@ -192,14 +216,14 @@ class EvolutionaryTrainer(Trainer):
         return losses
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, step: int) -> torch.Tensor | float:
+        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
+        losses = self._get_losses(mutated_batched_flat_params, x, y)
+
         if (
             self.do_adaptation_sampling_every_nth_step is not None
             and step % self.do_adaptation_sampling_every_nth_step == 0
         ):
-            self._run_adaptation_sampling()
-
-        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
-        losses = self._get_losses(mutated_batched_flat_params, x, y)
+            self._evaluate_adaptation_sampling(x, y, losses, step)
 
         self.optimizer.step(losses, mutations)
         return losses.mean()
@@ -225,5 +249,14 @@ class EvolutionaryTrainer(Trainer):
         if isinstance(self.optimizer.sigma, torch.Tensor):
             self.logger.log(
                 {"info/sigma distribution": wandb.Histogram(self.optimizer.sigma.tolist())},
+                start_train_step + num_steps - 1,
+            )
+
+        if isinstance(self.optimizer, optimizers.SNESOptimizer):
+            self.logger.log(
+                {
+                    "info/lr_mu": self.optimizer.mu_param_group["lr"],
+                    "info/lr_sigma": self.optimizer.sigma_param_group["lr"],
+                },
                 start_train_step + num_steps - 1,
             )

@@ -157,6 +157,7 @@ def get_model(config: ModelConfig, is_cifar10: bool) -> nn.Module:
 class TrainerConfig:
     USE_PARALLEL_FORWARD_PASS: Optional[bool] = False
     DO_ADAPTION_SAMPLING_EVERY_NTH_STEP: Optional[int] = None
+    ADAPTATION_SAMPLING_P_VALUE_THRESHOLD: Optional[float] = None
 
 
 def get_trainer(
@@ -176,6 +177,9 @@ def get_trainer(
     if isinstance(optimizer, optimizers.EvolutionaryOptimizer):
         assert config.USE_PARALLEL_FORWARD_PASS is not None
         assert use_torch_compile is not None
+        if config.DO_ADAPTION_SAMPLING_EVERY_NTH_STEP is not None:
+            assert config.ADAPTATION_SAMPLING_P_VALUE_THRESHOLD is not None
+
         return trainers.EvolutionaryTrainer(
             model=model,
             dataloader=dataloader,
@@ -189,6 +193,7 @@ def get_trainer(
             logger=logger,
             use_torch_compile=use_torch_compile,
             do_adaptation_sampling_every_nth_step=config.DO_ADAPTION_SAMPLING_EVERY_NTH_STEP,
+            adaptation_sampling_p_value_threshold=config.ADAPTATION_SAMPLING_P_VALUE_THRESHOLD,
         )
     else:
         return trainers.BackpropagationTrainer(
@@ -224,6 +229,7 @@ class OptimizerConfig:
     NUM_FAMILIES: Optional[int] = None
     USE_RANK_TRANSFORM: Optional[bool] = None
     ADAPTATION_SAMPLING_FACTOR: Optional[float] = None
+    ADAPTATION_SAMPLING_C_PRIME: Optional[float] = None
 
 
 def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
@@ -257,6 +263,11 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             )
             assert config.MOMENTUM == 0, "Momentum is not supported"
             assert config.WEIGHT_DECAY == 0, "Weight Decay is not supported"
+            if config.ADAPTATION_SAMPLING_FACTOR is not None:
+                assert config.ADAPTATION_SAMPLING_C_PRIME is not None
+                assert config.ADAPTATION_SAMPLING_C_PRIME > 1, (
+                    "The adaptation sampling c' only makes sense if it is >1"
+                )
 
             return optimizers.SNESOptimizer(
                 model.parameters(),
@@ -267,6 +278,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
                 use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
                 use_rank_transform=config.USE_RANK_TRANSFORM,
                 adaptation_sampling_factor=config.ADAPTATION_SAMPLING_FACTOR,
+                adaptation_sampling_c_prime=config.ADAPTATION_SAMPLING_C_PRIME,
             )
         else:
             raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))

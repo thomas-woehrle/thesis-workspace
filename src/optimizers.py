@@ -115,6 +115,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
         adaptation_sampling_factor: Optional[float],
+        adaptation_sampling_c_prime: Optional[float],
     ):
         # turning into a list because params might be Iterator
         self.original_unflattened_params = list(params)
@@ -122,6 +123,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.use_antithetic_sampling = use_antithetic_sampling
         self.use_rank_transform = use_rank_transform
         self.adaptation_sampling_factor = adaptation_sampling_factor
+        self.adaptation_sampling_c_prime = adaptation_sampling_c_prime
 
         # this represents the distribution-based population (mu, sigma)
         self.mu = nn.utils.parameters_to_vector(self.original_unflattened_params).detach()
