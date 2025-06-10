@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -114,35 +114,42 @@ class SNESOptimizer(EvolutionaryOptimizer):
         sigma_init: float,
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
+        adaptation_sampling_factor: Optional[float],
     ):
         # turning into a list because params might be Iterator
         self.original_unflattened_params = list(params)
         self.popsize = popsize
         self.use_antithetic_sampling = use_antithetic_sampling
         self.use_rank_transform = use_rank_transform
+        self.adaptation_sampling_factor = adaptation_sampling_factor
 
         # this represents the distribution-based population (mu, sigma)
         self.mu = nn.utils.parameters_to_vector(self.original_unflattened_params).detach()
         self.sigma = torch.ones_like(self.mu) * sigma_init
+        self.sigma_adaptation_sampled = self.sigma.clone().detach()
 
         # create param groups to enable lr scheduling
         self.mu_param_group = {"params": self.mu, "lr": lr}
         self.sigma_param_group = {"params": self.sigma, "lr": sigma_lr}
         super().__init__([self.mu_param_group, self.sigma_param_group], {})
 
-    def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def get_new_generation(
+        self, from_adaptation_sampled_sigma: bool = False
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        sigma = self.sigma_adaptation_sampled if from_adaptation_sampled_sigma else self.sigma
+
         if self.use_antithetic_sampling:
             assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
 
             # self sigma of shape d, randn result of shape popsize // 2 x d; -> broadcast
-            mutations = self.sigma * torch.randn(
+            mutations = sigma * torch.randn(
                 self.popsize // 2,
                 len(self.mu),
                 device=self.mu.device,
             )
             mutations = torch.concatenate([mutations, -mutations], dim=0)
         else:
-            mutations = self.sigma * torch.randn(
+            mutations = sigma * torch.randn(
                 self.popsize,
                 len(self.mu),
                 device=self.mu.device,
@@ -172,13 +179,18 @@ class SNESOptimizer(EvolutionaryOptimizer):
             ((normalized_mutations**2) - 1).T @ normalized_losses
         ).flatten() / self.popsize
 
-        # update flat_params using gradient descent step
+        # update mu using gradient descent step
         self.mu -= self.mu_param_group["lr"] * mu_grad
 
+        # create adaptation sampled sigma
+        if self.adaptation_sampling_factor is not None:
+            self.sigma_adaptation_sampled = self.sigma * torch.exp(
+                -(self.sigma_param_group["lr"] * self.adaptation_sampling_factor / 2) * sigma_grad
+            )
         # update sigma using exponential step; '-' because we want to go in opposite direction of gradient
         self.sigma *= torch.exp(-(self.sigma_param_group["lr"] / 2) * sigma_grad)
 
-        # load updated flat params into original params
+        # load mu into original params
         nn.utils.vector_to_parameters(self.mu, self.original_unflattened_params)
 
     def state_dict(self) -> dict[str, Any]:
