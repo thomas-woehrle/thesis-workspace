@@ -14,11 +14,13 @@ class EvolutionaryOptimizer(ABC, optim.Optimizer):
     @abstractmethod
     def get_new_generation(
         self,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         pass
 
     @abstractmethod
-    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
+    def step(
+        self, losses: torch.Tensor, mutations: torch.Tensor, zs: Optional[torch.Tensor] = None
+    ):
         pass
 
 
@@ -56,7 +58,7 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         for p in self.original_unflattened_params:
             p.grad = torch.zeros_like(p)
 
-    def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         if self.use_antithetic_sampling:
             assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
 
@@ -76,9 +78,11 @@ class OpenAIEvolutionaryOptimizer(EvolutionaryOptimizer):
         # '+' operation broadcasts to (popsize, num_params)
         batched_mutated_flat_params = self.flat_params + mutations
 
-        return batched_mutated_flat_params, mutations
+        return batched_mutated_flat_params, mutations, None
 
-    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
+    def step(
+        self, losses: torch.Tensor, mutations: torch.Tensor, zs: Optional[torch.Tensor] = None
+    ):
         # losses of shape popsize x 1
         # estimate gradients
         if self.use_rank_transform:
@@ -137,7 +141,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
 
     def get_new_generation(
         self, from_adaptation_sampled_sigma: bool = False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         sigma = self.sigma_adaptation_sampled if from_adaptation_sampled_sigma else self.sigma
 
         if self.use_antithetic_sampling:
@@ -160,9 +164,11 @@ class SNESOptimizer(EvolutionaryOptimizer):
         # '+' operation broadcasts to (popsize, num_params)
         batched_mutated_flat_params = self.mu + mutations
 
-        return batched_mutated_flat_params, mutations
+        return batched_mutated_flat_params, mutations, None
 
-    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
+    def step(
+        self, losses: torch.Tensor, mutations: torch.Tensor, zs: Optional[torch.Tensor] = None
+    ):
         # losses of shape (popsize, )
         # estimate gradients
         if self.use_rank_transform:
@@ -262,8 +268,9 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
         self.sigma_param_group = {"params": sigma_params, "lr": sigma_lr}
         super().__init__([self.mu_param_group, self.sigma_param_group], {})
 
-    def get_new_generation(self):
+    def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         mutations = []
+        zs = []
 
         sample_size = self.popsize
         if self.use_antithetic_sampling:
@@ -293,17 +300,22 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
 
             if self.use_antithetic_sampling:
                 mutation = torch.concatenate([mutation, -mutation], dim=0)
+                z = torch.concatenate([z, -z], dim=0)
 
             mutations.append(mutation)
+            zs.append(z)
 
         mutations = torch.concatenate(mutations, dim=1)
+        zs = torch.concatenate(zs, dim=1)
 
         # '+' operation broadcasts to (popsize, num_params)
         batched_mutated_flat_params = self.mu + mutations
 
-        return batched_mutated_flat_params, mutations
+        return batched_mutated_flat_params, mutations, zs
 
-    def step(self, losses: torch.Tensor, mutations: torch.Tensor):
+    def step(
+        self, losses: torch.Tensor, mutations: torch.Tensor, zs: Optional[torch.Tensor] = None
+    ):
         # losses of shape (popsize, )
         # estimate gradients
         if self.use_rank_transform:
@@ -324,14 +336,9 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
             block_mutations = mutations[:, current_idx : current_idx + d]
 
             if self.cov_info[n]["full_cov"]:
-                # reconstruct z from mutations: z = L^-1 @ s
-                flat_tril = self.cov_info[n]["flat_cov_tril"]
-                L = torch.zeros(d, d, device=self.mu.device)
-                tril_indices = torch.tril_indices(row=d, col=d, offset=0)
-                L[tril_indices[0], tril_indices[1]] = flat_tril
-                L_inv = torch.inverse(L)
-                # z is of shape (popsize, d)
-                z = (L_inv @ block_mutations.T).T
+                # reconstruct z from mutations: s = L @ z -> z = L^-1 @ s
+                assert zs is not None
+                z = zs[:, current_idx : current_idx + d]
 
                 # gradient for L is G_L = sum(u_k * (z_k * z_k.T - I))
                 # we only need the lower triangle of the gradient
@@ -342,6 +349,7 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                 g_L_tril = torch.tril(g_L)
 
                 # extract flat tril gradient
+                tril_indices = torch.tril_indices(row=d, col=d, offset=0)
                 grad_flat_tril = g_L_tril[tril_indices[0], tril_indices[1]]
 
                 # update L using exponential update
