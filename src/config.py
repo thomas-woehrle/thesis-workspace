@@ -158,6 +158,7 @@ class TrainerConfig:
     USE_PARALLEL_FORWARD_PASS: Optional[bool] = False
     DO_ADAPTION_SAMPLING_EVERY_NTH_STEP: Optional[int] = None
     ADAPTATION_SAMPLING_P_VALUE_THRESHOLD: Optional[float] = None
+    ADAPTATION_TARGET: Optional[str] = None
 
 
 def get_trainer(
@@ -179,6 +180,8 @@ def get_trainer(
         assert use_torch_compile is not None
         if config.DO_ADAPTION_SAMPLING_EVERY_NTH_STEP is not None:
             assert config.ADAPTATION_SAMPLING_P_VALUE_THRESHOLD is not None
+            assert config.ADAPTATION_TARGET is not None
+            assert config.ADAPTATION_TARGET in ["mu", "sigma", "alternating"]
 
         return trainers.EvolutionaryTrainer(
             model=model,
@@ -194,6 +197,7 @@ def get_trainer(
             use_torch_compile=use_torch_compile,
             do_adaptation_sampling_every_nth_step=config.DO_ADAPTION_SAMPLING_EVERY_NTH_STEP,
             adaptation_sampling_p_value_threshold=config.ADAPTATION_SAMPLING_P_VALUE_THRESHOLD,
+            adaptation_target=config.ADAPTATION_TARGET,
         )
     else:
         return trainers.BackpropagationTrainer(

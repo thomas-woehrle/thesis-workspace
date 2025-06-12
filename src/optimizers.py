@@ -129,6 +129,7 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.mu = nn.utils.parameters_to_vector(self.original_unflattened_params).detach()
         self.sigma = torch.ones_like(self.mu) * sigma_init
         self.sigma_adaptation_sampled = self.sigma.clone().detach()
+        self.mu_adaptation_sampled = self.mu.clone().detach()
 
         # create param groups to enable lr scheduling
         self.mu_param_group = {"params": self.mu, "lr": lr}
@@ -136,9 +137,14 @@ class SNESOptimizer(EvolutionaryOptimizer):
         super().__init__([self.mu_param_group, self.sigma_param_group], {})
 
     def get_new_generation(
-        self, from_adaptation_sampled_sigma: bool = False
+        self, adaptation_source: Optional[str] = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        sigma = self.sigma_adaptation_sampled if from_adaptation_sampled_sigma else self.sigma
+        sigma = self.sigma
+        mu = self.mu
+        if adaptation_source == "sigma":
+            sigma = self.sigma_adaptation_sampled
+        elif adaptation_source == "mu":
+            mu = self.mu_adaptation_sampled
 
         if self.use_antithetic_sampling:
             assert self.popsize % 2 == 0, "If using antithetic sampling, the popsize has to be even"
@@ -146,19 +152,19 @@ class SNESOptimizer(EvolutionaryOptimizer):
             # self sigma of shape d, randn result of shape popsize // 2 x d; -> broadcast
             mutations = sigma * torch.randn(
                 self.popsize // 2,
-                len(self.mu),
-                device=self.mu.device,
+                len(mu),
+                device=mu.device,
             )
             mutations = torch.concatenate([mutations, -mutations], dim=0)
         else:
             mutations = sigma * torch.randn(
                 self.popsize,
-                len(self.mu),
-                device=self.mu.device,
+                len(mu),
+                device=mu.device,
             )
 
         # '+' operation broadcasts to (popsize, num_params)
-        batched_mutated_flat_params = self.mu + mutations
+        batched_mutated_flat_params = mu + mutations
 
         return batched_mutated_flat_params, mutations
 
@@ -182,6 +188,10 @@ class SNESOptimizer(EvolutionaryOptimizer):
         ).flatten() / self.popsize
 
         # update mu using gradient descent step
+        if self.adaptation_sampling_factor is not None:
+            self.mu_adaptation_sampled = self.mu - (
+                self.mu_param_group["lr"] * self.adaptation_sampling_factor * mu_grad
+            )
         self.mu -= self.mu_param_group["lr"] * mu_grad
 
         # create adaptation sampled sigma

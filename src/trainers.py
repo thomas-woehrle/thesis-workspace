@@ -112,6 +112,7 @@ class EvolutionaryTrainer(Trainer):
         use_torch_compile: bool,
         do_adaptation_sampling_every_nth_step: Optional[int],
         adaptation_sampling_p_value_threshold: Optional[float],
+        adaptation_target: Optional[str],
     ):
         super().__init__(
             model=model,
@@ -129,6 +130,9 @@ class EvolutionaryTrainer(Trainer):
 
         self.do_adaptation_sampling_every_nth_step = do_adaptation_sampling_every_nth_step
         self.adaptation_sampling_p_value_threshold = adaptation_sampling_p_value_threshold
+        self.adaptation_target = adaptation_target
+        if self.adaptation_target == "alternating":
+            self.alternating_adaptation_target = "mu"
 
         self.bn_track_running_stats = bn_track_running_stats
         self.use_instance_norm = use_instance_norm
@@ -157,28 +161,38 @@ class EvolutionaryTrainer(Trainer):
         return batched_named_params
 
     def _evaluate_adaptation_sampling(
-        self, x: torch.Tensor, y: torch.Tensor, losses_current_sigma: torch.Tensor, step: int
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        current_losses: torch.Tensor,
+        param_to_adapt: str,
+        step: int,
     ):
         if not isinstance(self.optimizer, optimizers.SNESOptimizer):
             return
 
-        params_adapted, _ = self.optimizer.get_new_generation(from_adaptation_sampled_sigma=True)
+        params_adapted, _ = self.optimizer.get_new_generation(adaptation_source=param_to_adapt)
         losses_adapted = self._get_losses(params_adapted, x, y)
 
         p_value = mannwhitneyu(
             losses_adapted.cpu().numpy(),
-            losses_current_sigma.cpu().numpy(),
+            current_losses.cpu().numpy(),
             alternative="less",
         )[1]
 
-        self.logger.log({"info/as_p_value": p_value}, step)
+        self.logger.log({f"info/as_p_value_{param_to_adapt}": p_value}, step)
 
+        param_group = (
+            self.optimizer.mu_param_group
+            if param_to_adapt == "mu"
+            else self.optimizer.sigma_param_group
+        )
         if p_value < self.adaptation_sampling_p_value_threshold:
             # aggressive update was good, increase lr
-            self.optimizer.sigma_param_group["lr"] *= self.optimizer.adaptation_sampling_c_prime
+            param_group["lr"] *= self.optimizer.adaptation_sampling_c_prime
         else:
             # aggressive update was bad, decrease lr
-            self.optimizer.sigma_param_group["lr"] /= self.optimizer.adaptation_sampling_c_prime
+            param_group["lr"] /= self.optimizer.adaptation_sampling_c_prime
 
     def _get_losses(
         self, batched_flat_params: torch.Tensor, x: torch.Tensor, y: torch.Tensor
@@ -221,9 +235,17 @@ class EvolutionaryTrainer(Trainer):
 
         if (
             self.do_adaptation_sampling_every_nth_step is not None
+            and self.adaptation_target is not None
             and step % self.do_adaptation_sampling_every_nth_step == 0
         ):
-            self._evaluate_adaptation_sampling(x, y, losses, step)
+            param_to_adapt = self.adaptation_target
+            if self.adaptation_target == "alternating":
+                param_to_adapt = self.alternating_adaptation_target
+                self.alternating_adaptation_target = (
+                    "sigma" if self.alternating_adaptation_target == "mu" else "mu"
+                )
+
+            self._evaluate_adaptation_sampling(x, y, losses, param_to_adapt, step)
 
         self.optimizer.step(losses, mutations)
         return losses.mean()
