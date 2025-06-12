@@ -240,23 +240,24 @@ class EvolutionaryTrainer(Trainer):
             named_buffers = {n: b[0] for n, b in self.batched_named_buffers.items()}
             self.model.load_state_dict(named_buffers, strict=False)
 
-        sigma_mean = (
-            self.optimizer.sigma.mean()
-            if isinstance(self.optimizer.sigma, torch.Tensor)
-            else self.optimizer.sigma
-        )
-        self.logger.log({"info/sigma_mean": sigma_mean}, start_train_step + num_steps - 1)
-        if isinstance(self.optimizer.sigma, torch.Tensor):
-            self.logger.log(
-                {"info/sigma distribution": wandb.Histogram(self.optimizer.sigma.tolist())},
-                start_train_step + num_steps - 1,
+        if not isinstance(self.optimizer, optimizers.BlockDiagonalNESOptimizer):
+            sigma_mean = (
+                self.optimizer.sigma.mean()
+                if isinstance(self.optimizer.sigma, torch.Tensor)
+                else self.optimizer.sigma
             )
+            self.logger.log({"info/sigma_mean": sigma_mean}, start_train_step + num_steps - 1)
+            if isinstance(self.optimizer.sigma, torch.Tensor):
+                self.logger.log(
+                    {"info/sigma distribution": wandb.Histogram(self.optimizer.sigma.tolist())},
+                    start_train_step + num_steps - 1,
+                )
 
-        if isinstance(self.optimizer, optimizers.SNESOptimizer):
-            self.logger.log(
-                {
-                    "info/lr_mu": self.optimizer.mu_param_group["lr"],
-                    "info/lr_sigma": self.optimizer.sigma_param_group["lr"],
-                },
-                start_train_step + num_steps - 1,
-            )
+            if isinstance(self.optimizer, optimizers.SNESOptimizer):
+                self.logger.log(
+                    {
+                        "info/lr_mu": self.optimizer.mu_param_group["lr"],
+                        "info/lr_sigma": self.optimizer.sigma_param_group["lr"],
+                    },
+                    start_train_step + num_steps - 1,
+                )

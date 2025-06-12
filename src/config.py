@@ -280,6 +280,28 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
                 adaptation_sampling_factor=config.ADAPTATION_SAMPLING_FACTOR,
                 adaptation_sampling_c_prime=config.ADAPTATION_SAMPLING_C_PRIME,
             )
+        elif config.OPTIMIZER_SLUG == "bdnes_optimizer":
+            assert config.POPSIZE is not None
+            assert config.SIGMA_INIT is not None
+            assert config.USE_ANTITHETIC_SAMPLING is not None
+            assert config.USE_RANK_TRANSFORM is not None
+            assert config.SIGMA_LR is not None
+            assert config.NES_INNER_OPTIMIZER_SLUG is None, (
+                "Inner Optimizer not supported with SNES"
+            )
+            assert config.MOMENTUM == 0, "Momentum is not supported"
+            assert config.WEIGHT_DECAY == 0, "Weight Decay is not supported"
+            assert config.ADAPTATION_SAMPLING_FACTOR is None
+
+            return optimizers.BlockDiagonalNESOptimizer(
+                named_params=model.named_parameters(),
+                popsize=config.POPSIZE,
+                sigma_init=config.SIGMA_INIT,
+                lr=config.LR,
+                sigma_lr=config.SIGMA_LR,
+                use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
+                use_rank_transform=config.USE_RANK_TRANSFORM,
+            )
         else:
             raise ValueError(utils.get_not_supported_message("Optimizer", config.OPTIMIZER_SLUG))
     else:
