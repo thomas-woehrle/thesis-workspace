@@ -1,5 +1,5 @@
-import sys
 from dataclasses import asdict
+import argparse
 
 import torch
 import wandb
@@ -114,16 +114,38 @@ def run_training(
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise ValueError("Usage: python resnet_training.py <path_to_config_file>")
+    parser = argparse.ArgumentParser(
+        description="ResNet Training. \n"
+        "To start a new run, provide a path to a config file. \n"
+        "To resume a run, use the --resume flag with the wandb run ID."
+    )
+    parser.add_argument(
+        "config_file_path",
+        nargs="?",
+        default=None,
+        help="Path to the config file (for new runs).",
+    )
+    parser.add_argument("--resume", type=str, help="Wandb <project_name>/<run_id> to resume from.")
 
-    config_file_path = sys.argv[1]
+    args = parser.parse_args()
 
-    run_config = utils.load_config_from_file(config_file_path)
+    if args.config_file_path and args.resume:
+        parser.error("argument config_file_path not allowed with argument --resume")
 
-    with wandb.init(
-        project=run_config.general_config.WANDB_PROJECT,
-        config=asdict(run_config),
-        mode="online" if run_config.general_config.WANDB_PROJECT is not None else "offline",
-    ) as wandb_run:
+    if not args.config_file_path and not args.resume:
+        parser.error("either a config_file_path or --resume is required")
+
+    if args.resume:
+        project_name, run_id = args.resume.split("/")
+        run_config, wandb_run = utils.resume_from_wandb(run_id, project_name)
+    else:
+        # The case where args.config_file_path is not None is handled by the check above
+        run_config = utils.load_config_from_file(args.config_file_path)
+        wandb_run = wandb.init(
+            project=run_config.general_config.WANDB_PROJECT,
+            config=asdict(run_config),
+            mode="online" if run_config.general_config.WANDB_PROJECT is not None else "offline",
+        )
+
+    with wandb_run:
         run_training(run_config, wandb_run)

@@ -1,7 +1,6 @@
 import os
 import random
-from typing import Iterable, Optional
-
+from typing import Iterable, Optional, Tuple
 
 import numpy as np
 import torch
@@ -10,6 +9,8 @@ import torch.optim as optim
 import yaml
 from torch._functorch.functional_call import functional_call
 from torch._functorch.apis import vmap
+import wandb
+import wandb.wandb_run
 
 import config
 
@@ -143,3 +144,50 @@ def get_non_evolutionary_optimizer(
         )
     else:
         raise ValueError(get_not_supported_message("Non-Evolutionary Optimizer", slug))
+
+
+def resume_from_wandb(
+    run_id: str, project_name: str
+) -> Tuple["config.RunConfig", wandb.wandb_run.Run]:
+    """
+    Resumes a training run from a wandb run ID.
+
+    Args:
+        run_id: The ID of the wandb run to resume.
+        project_name: The name of the wandb project.
+
+    Returns:
+        A tuple containing the run configuration and the wandb run object.
+    """
+    wandb_run = wandb.init(id=run_id, project=project_name, resume="must")
+    wandb_config = dict(wandb_run.config)
+
+    # Reconstruct the RunConfig from the dictionary fetched from wandb
+    general_config_dict = wandb_config["general_config"]
+    general_config_dict["DEVICE"] = torch.device(general_config_dict["DEVICE"])
+    general_config_dict["MP_DTYPE"] = getattr(torch, general_config_dict["MP_DTYPE"].split(".")[-1])
+    general_config = config.GeneralConfig(**general_config_dict)
+
+    run_config = config.RunConfig(
+        general_config=general_config,
+        data_config=config.DataConfig(**wandb_config["data_config"]),
+        model_config=config.ModelConfig(**wandb_config["model_config"]),
+        trainer_config=config.TrainerConfig(**wandb_config["trainer_config"]),
+        optimizer_config=config.OptimizerConfig(**wandb_config["optimizer_config"]),
+        lr_scheduler_config=config.LRSchedulerConfig(**wandb_config["lr_scheduler_config"]),
+        evaluator_config=config.EvaluatorConfig(**wandb_config["evaluator_config"]),
+    )
+
+    # Find the latest checkpoint
+    if run_config.general_config.CKPT_PATH:
+        ckpt_dir = os.path.join(run_config.general_config.CKPT_PATH, run_id)
+        if os.path.isdir(ckpt_dir):
+            pt_files = [
+                os.path.join(ckpt_dir, f) for f in os.listdir(ckpt_dir) if f.endswith(".pt")
+            ]
+            if pt_files:
+                latest_ckpt = max(pt_files, key=os.path.getmtime)
+                run_config.general_config.RESUME_FROM_CKPT_PATH = latest_ckpt
+                print(f"Resuming from checkpoint: {latest_ckpt}")
+
+    return run_config, wandb_run
