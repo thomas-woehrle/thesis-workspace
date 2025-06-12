@@ -247,11 +247,12 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                 L = torch.full((d, d), 0.1 * sigma_init, device=self.mu.device)
                 L = torch.tril(L)
                 L.fill_diagonal_(sigma_init)
-                tril_indices = torch.tril_indices(row=d, col=d, offset=0)
+                tril_indices = torch.tril_indices(row=d, col=d, offset=0, device=self.mu.device)
                 flat_tril = L[tril_indices[0], tril_indices[1]]
                 self.cov_info[n] = {
                     "full_cov": True,
                     "flat_cov_tril": flat_tril,
+                    "tril_indices": tril_indices,
                 }
                 sigma_params.append(self.cov_info[n]["flat_cov_tril"])
             else:
@@ -288,9 +289,9 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
             if self.cov_info[n]["full_cov"]:
                 # do full cov sampling
                 flat_tril = self.cov_info[n]["flat_cov_tril"]
+                tril_indices = self.cov_info[n]["tril_indices"]
 
                 L = torch.zeros(d, d, device=self.mu.device)
-                tril_indices = torch.tril_indices(row=d, col=d, offset=0)
                 L[tril_indices[0], tril_indices[1]] = flat_tril
 
                 # mutation is of shape (sample_size, d)
@@ -349,7 +350,7 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                 g_L_tril = torch.tril(g_L)
 
                 # extract flat tril gradient
-                tril_indices = torch.tril_indices(row=d, col=d, offset=0)
+                tril_indices = self.cov_info[n]["tril_indices"]
                 grad_flat_tril = g_L_tril[tril_indices[0], tril_indices[1]]
 
                 # update L using exponential update
