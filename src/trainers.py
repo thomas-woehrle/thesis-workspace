@@ -162,7 +162,7 @@ class EvolutionaryTrainer(Trainer):
         if not isinstance(self.optimizer, optimizers.SNESOptimizer):
             return
 
-        params_adapted, _ = self.optimizer.get_new_generation(from_adaptation_sampled_sigma=True)
+        params_adapted, _, _ = self.optimizer.get_new_generation(from_adaptation_sampled_sigma=True)
         losses_adapted = self._get_losses(params_adapted, x, y)
 
         p_value = mannwhitneyu(
@@ -216,7 +216,7 @@ class EvolutionaryTrainer(Trainer):
         return losses
 
     def train_step(self, x: torch.Tensor, y: torch.Tensor, step: int) -> torch.Tensor | float:
-        mutated_batched_flat_params, mutations = self.optimizer.get_new_generation()
+        mutated_batched_flat_params, mutations, zs = self.optimizer.get_new_generation()
         losses = self._get_losses(mutated_batched_flat_params, x, y)
 
         if (
@@ -225,7 +225,7 @@ class EvolutionaryTrainer(Trainer):
         ):
             self._evaluate_adaptation_sampling(x, y, losses, step)
 
-        self.optimizer.step(losses, mutations)
+        self.optimizer.step(losses, mutations, zs)
         return losses.mean()
 
     @torch.no_grad()
