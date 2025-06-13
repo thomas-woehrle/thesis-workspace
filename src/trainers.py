@@ -261,3 +261,17 @@ class EvolutionaryTrainer(Trainer):
                     },
                     start_train_step + num_steps - 1,
                 )
+        else:
+            for param_group_name, cov_info in self.optimizer.cov_info.items():
+                if self.optimizer.use_bdnes:
+                    self.logger.log(
+                        {
+                            f"cov_dist/{param_group_name}": wandb.Histogram(
+                                cov_info["flat_cov_tril"].tolist()
+                            )
+                        },
+                        start_train_step + num_steps - 1,
+                    )
+                else:
+                    # currently no logging in the case of not using bdnes in bdnes optimizer
+                    pass
