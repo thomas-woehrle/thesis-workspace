@@ -51,6 +51,10 @@ class DataConfig:
 CIFAR100_MEAN = (0.5071, 0.4865, 0.4409)
 CIFAR100_STD = (0.2673, 0.2564, 0.2762)
 
+# Mean and standard deviation for CIFAR-10 (precomputed)
+CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)
+CIFAR10_STD = (0.247, 0.243, 0.261)
+
 
 def get_cifar_dataloader(
     config: DataConfig,
@@ -58,13 +62,16 @@ def get_cifar_dataloader(
     num_train_steps: Optional[int] = None,
     generator: Optional[torch.Generator] = None,
 ) -> DataLoader:
+    mean = CIFAR10_MEAN if config.IS_CIFAR10 else CIFAR100_MEAN
+    std = CIFAR10_STD if config.IS_CIFAR10 else CIFAR100_STD
+
     train_transforms = (
         transforms.Compose(
             [
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
+                transforms.Normalize(mean, std),
             ]
         )
         if config.USE_IMG_TRANSFORMS
@@ -72,9 +79,7 @@ def get_cifar_dataloader(
     )
 
     val_transforms = (
-        transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD)]
-        )
+        transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
         if config.USE_IMG_TRANSFORMS
         else transforms.ToTensor()
     )
