@@ -170,6 +170,13 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self, losses: torch.Tensor, mutations: torch.Tensor, zs: Optional[torch.Tensor] = None
     ):
         # losses of shape (popsize, )
+        # find best params of this generation and load them into the model
+        # we do this before any transformation of the losses
+        best_mutation_idx = torch.argmin(losses)
+        best_mutation = mutations[best_mutation_idx]
+        best_params = self.mu + best_mutation
+        nn.utils.vector_to_parameters(best_params, self.original_unflattened_params)
+
         # estimate gradients
         if self.use_rank_transform:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
@@ -197,9 +204,6 @@ class SNESOptimizer(EvolutionaryOptimizer):
             )
         # update sigma using exponential step; '-' because we want to go in opposite direction of gradient
         self.sigma *= torch.exp(-(self.sigma_param_group["lr"] / 2) * sigma_grad)
-
-        # load mu into original params
-        nn.utils.vector_to_parameters(self.mu, self.original_unflattened_params)
 
     def state_dict(self) -> dict[str, Any]:
         return {
