@@ -262,16 +262,44 @@ class EvolutionaryTrainer(Trainer):
                     start_train_step + num_steps - 1,
                 )
         else:
-            for param_group_name, cov_info in self.optimizer.cov_info.items():
-                if self.optimizer.use_bdnes:
+            if self.optimizer.use_bdnes:
+                all_diag_elements = []
+                all_off_diag_elements = []
+                for cov_info in self.optimizer.cov_info.values():
+                    flat_tril = cov_info["flat_cov_tril"]
+                    tril_indices = cov_info["tril_indices"]
+                    diag_mask = tril_indices[0] == tril_indices[1]
+                    all_diag_elements.append(flat_tril[diag_mask])
+                    all_off_diag_elements.append(flat_tril[~diag_mask])
+
+                all_diag_elements = torch.cat(all_diag_elements)
+                all_off_diag_elements = torch.cat(all_off_diag_elements)
+
+                self.logger.log(
+                    {
+                        "cov_dist/diagonals": wandb.Histogram(all_diag_elements.cpu().tolist()),
+                    },
+                    start_train_step + num_steps - 1,
+                )
+                if all_off_diag_elements.numel() > 0:
                     self.logger.log(
                         {
-                            f"cov_dist/{param_group_name}": wandb.Histogram(
-                                cov_info["flat_cov_tril"].tolist()
-                            )
+                            "cov_dist/off_diagonals": wandb.Histogram(
+                                all_off_diag_elements.cpu().tolist()
+                            ),
                         },
                         start_train_step + num_steps - 1,
                     )
-                else:
-                    # currently no logging in the case of not using bdnes in bdnes optimizer
-                    pass
+            else:
+                # SNES-style logging for BlockDiagonalNESOptimizer with use_bdnes=False
+                all_sigmas = torch.cat(
+                    [cov_info["sigma"] for cov_info in self.optimizer.cov_info.values()]
+                )
+
+                self.logger.log(
+                    {"info/sigma_mean": all_sigmas.mean()}, start_train_step + num_steps - 1
+                )
+                self.logger.log(
+                    {"info/sigma distribution": wandb.Histogram(all_sigmas.cpu().tolist())},
+                    start_train_step + num_steps - 1,
+                )
