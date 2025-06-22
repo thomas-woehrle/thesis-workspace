@@ -251,36 +251,18 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                     for i in range(out_channels):
                         channel_params = p[i].flatten()
                         channel_d = channel_params.numel()
-                        L = torch.full(
-                            (channel_d, channel_d), 0.1 * sigma_init, device=self.mu.device
-                        )
-                        L = torch.tril(L)
-                        L.fill_diagonal_(sigma_init)
-                        tril_indices = torch.tril_indices(
-                            row=channel_d, col=channel_d, offset=0, device=self.mu.device
-                        )
-                        flat_tril = L[tril_indices[0], tril_indices[1]]
+                        A = torch.eye(channel_d, device=self.mu.device) * sigma_init
                         self.cov_info[f"{n}_channel_{i}"] = {
-                            "full_cov": True,
-                            "flat_cov_tril": flat_tril,
-                            "tril_indices": tril_indices,
+                            "A": A,
                             "channel_index": i,
                             "param_name": n,
                         }
-                        sigma_params.append(self.cov_info[f"{n}_channel_{i}"]["flat_cov_tril"])
+                        sigma_params.append(self.cov_info[f"{n}_channel_{i}"]["A"])
                 else:
                     # manage full cov variance for non-Conv2d parameters
-                    L = torch.full((d, d), 0.1 * sigma_init, device=self.mu.device)
-                    L = torch.tril(L)
-                    L.fill_diagonal_(sigma_init)
-                    tril_indices = torch.tril_indices(row=d, col=d, offset=0, device=self.mu.device)
-                    flat_tril = L[tril_indices[0], tril_indices[1]]
-                    self.cov_info[n] = {
-                        "full_cov": True,
-                        "flat_cov_tril": flat_tril,
-                        "tril_indices": tril_indices,
-                    }
-                    sigma_params.append(self.cov_info[n]["flat_cov_tril"])
+                    A = torch.eye(d, device=self.mu.device) * sigma_init
+                    self.cov_info[n] = {"A": A}
+                    sigma_params.append(self.cov_info[n]["A"])
             else:
                 # manage only sigma vector ie SNES
                 sigma = torch.ones(d, device=self.mu.device) * sigma_init
@@ -317,13 +299,9 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                             channel_d,
                             device=self.mu.device,
                         )
-                        flat_tril = self.cov_info[f"{n}_channel_{i}"]["flat_cov_tril"]
-                        tril_indices = self.cov_info[f"{n}_channel_{i}"]["tril_indices"]
+                        A = self.cov_info[f"{n}_channel_{i}"]["A"]
+                        mutation = z @ A.T
 
-                        L = torch.zeros(channel_d, channel_d, device=self.mu.device)
-                        L[tril_indices[0], tril_indices[1]] = flat_tril
-
-                        mutation = (L @ z.T).T
                         if self.use_antithetic_sampling:
                             mutation = torch.concatenate([mutation, -mutation], dim=0)
                             z = torch.concatenate([z, -z], dim=0)
@@ -336,13 +314,9 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                         d,
                         device=self.mu.device,
                     )
-                    flat_tril = self.cov_info[n]["flat_cov_tril"]
-                    tril_indices = self.cov_info[n]["tril_indices"]
+                    A = self.cov_info[n]["A"]
+                    mutation = z @ A.T
 
-                    L = torch.zeros(d, d, device=self.mu.device)
-                    L[tril_indices[0], tril_indices[1]] = flat_tril
-
-                    mutation = (L @ z.T).T
                     if self.use_antithetic_sampling:
                         mutation = torch.concatenate([mutation, -mutation], dim=0)
                         z = torch.concatenate([z, -z], dim=0)
@@ -400,39 +374,38 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                     for i in range(out_channels):
                         channel_params = p[i].flatten()
                         channel_d = channel_params.numel()
-                        block_mutations = mutations[:, current_idx : current_idx + channel_d]
                         z = zs[:, current_idx : current_idx + channel_d]
 
-                        g_L = torch.einsum("k,ki,kj->ij", normalized_losses, z, z)
-                        g_L -= torch.sum(normalized_losses) * torch.eye(
-                            channel_d, device=self.mu.device
+                        g_Sigma = (
+                            torch.einsum("k,ki,kj->ij", normalized_losses, z, z) / self.popsize
                         )
-                        g_L /= self.popsize
-                        g_L_tril = torch.tril(g_L)
+                        # TODO should deduct identity, cause currently relying on losses to be normalized so that g_Sigma = g_M
 
-                        tril_indices = self.cov_info[f"{n}_channel_{i}"]["tril_indices"]
-                        grad_flat_tril = g_L_tril[tril_indices[0], tril_indices[1]]
+                        A = self.cov_info[f"{n}_channel_{i}"]["A"]
+                        lr = self.sigma_param_group["lr"]
 
-                        self.cov_info[f"{n}_channel_{i}"]["flat_cov_tril"] *= torch.exp(
-                            -(self.sigma_param_group["lr"] / 2) * grad_flat_tril
-                        )
+                        # (2) Half‐step matrix exponential:
+                        exp_half = torch.linalg.matrix_exp(0.5 * lr * g_Sigma)  # shape: [d,d]
+
+                        # (3) Right‐multiply your current A:
+                        A = self.cov_info[f"{n}_channel_{i}"]["A"]
+                        A.data.copy_(A @ exp_half)
 
                         current_idx += channel_d
                 else:
-                    block_mutations = mutations[:, current_idx : current_idx + d]
                     z = zs[:, current_idx : current_idx + d]
 
-                    g_L = torch.einsum("k,ki,kj->ij", normalized_losses, z, z)
-                    g_L -= torch.sum(normalized_losses) * torch.eye(d, device=self.mu.device)
-                    g_L /= self.popsize
-                    g_L_tril = torch.tril(g_L)
+                    g_Sigma = torch.einsum("k,ki,kj->ij", normalized_losses, z, z) / self.popsize
 
-                    tril_indices = self.cov_info[n]["tril_indices"]
-                    grad_flat_tril = g_L_tril[tril_indices[0], tril_indices[1]]
+                    A = self.cov_info[n]["A"]
+                    lr = self.sigma_param_group["lr"]
 
-                    self.cov_info[n]["flat_cov_tril"] *= torch.exp(
-                        -(self.sigma_param_group["lr"] / 2) * grad_flat_tril
-                    )
+                    # (2) Half‐step matrix exponential:
+                    exp_half = torch.linalg.matrix_exp(0.5 * lr * g_Sigma)  # shape: [d,d]
+
+                    # (3) Right‐multiply your current A:
+                    A = self.cov_info[n]["A"]
+                    A.data.copy_(A @ exp_half)
 
                     current_idx += d
             else:
