@@ -229,7 +229,7 @@ def sample_from_A(sample_size: int, A: torch.Tensor, device: torch.device):
 
 
 def step_mu(mu: torch.Tensor, g_delta: torch.Tensor, A: torch.Tensor, lr: float):
-    update = lr * A @ g_delta
+    update = lr * g_delta @ A
     mu.sub_(update)
 
 
