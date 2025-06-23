@@ -216,6 +216,34 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.sigma_param_group["lr"] = state_dict["sigma_lr"]
 
 
+def get_initial_A(d: int, diag_init: float, device: torch.device):
+    A = torch.ones(d, d, device=device) * 1e-4
+    A.fill_diagonal_(diag_init)
+    return A
+
+
+def sample_from_A(sample_size: int, A: torch.Tensor, device: torch.device):
+    s = torch.randn(sample_size, A.shape[0], device=device)
+    mutation = s @ A
+    return mutation, s
+
+
+def step_mu(mu: torch.Tensor, g_delta: torch.Tensor, A: torch.Tensor, lr: float):
+    update = lr * A @ g_delta
+    mu.sub_(update)
+
+
+def step_A(A: torch.Tensor, losses: torch.Tensor, s: torch.Tensor, lr: float):
+    popsize = losses.shape[0]
+    # g_M is the gradient for the covariance matrix
+    g_M = torch.einsum("k,ki,kj->ij", losses, s, s)
+    g_M -= torch.sum(losses) * torch.eye(g_M.shape[0], device=g_M.device)
+    g_M /= popsize
+
+    matrix_exp = torch.matrix_exp(-0.5 * lr * g_M)
+    A.data.copy_(A @ matrix_exp)
+
+
 class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
@@ -226,7 +254,6 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
         sigma_init: float,
         use_antithetic_sampling: bool,
         use_rank_transform: bool,
-        use_bdnes: bool = True,
     ):
         # turning into a list because params might be Iterator
         self.named_params = list(named_params)
@@ -234,52 +261,39 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
         self.popsize = popsize
         self.use_antithetic_sampling = use_antithetic_sampling
         self.use_rank_transform = use_rank_transform
-        self.use_bdnes = use_bdnes
 
-        # this represents the distribution-based population (mu, sigma)
+        # this represents the distribution-based population
         self.mu = nn.utils.parameters_to_vector(self.original_unflattened_params).detach()
-        # "trils" = triangular lower matrix
-        self.cov_info = {}
-        sigma_params = []
-
-        for n, p in self.named_params:
-            d = p.numel()
-            if self.use_bdnes:
-                if len(p.shape) == 4:  # Conv2d parameters
-                    # Split Conv2d parameters into output channels
-                    out_channels = p.shape[0]
-                    for i in range(out_channels):
-                        channel_params = p[i].flatten()
-                        channel_d = channel_params.numel()
-                        A = torch.eye(channel_d, device=self.mu.device) * sigma_init
-                        self.cov_info[f"{n}_channel_{i}"] = {
-                            "A": A,
-                            "channel_index": i,
-                            "param_name": n,
-                        }
-                        sigma_params.append(self.cov_info[f"{n}_channel_{i}"]["A"])
-                else:
-                    # manage full cov variance for non-Conv2d parameters
-                    A = torch.eye(d, device=self.mu.device) * sigma_init
-                    self.cov_info[n] = {"A": A}
-                    sigma_params.append(self.cov_info[n]["A"])
-            else:
-                # manage only sigma vector ie SNES
-                sigma = torch.ones(d, device=self.mu.device) * sigma_init
-                self.cov_info[n] = {
-                    "full_cov": False,
-                    "sigma": sigma,
-                }
-                sigma_params.append(self.cov_info[n]["sigma"])
+        self.cov_info: dict[str, torch.Tensor] = {}
 
         # create param groups to enable lr scheduling
         self.mu_param_group = {"params": self.mu, "lr": lr}
-        self.sigma_param_group = {"params": sigma_params, "lr": sigma_lr}
+        self.sigma_param_group = {"params": [], "lr": sigma_lr}
         super().__init__([self.mu_param_group, self.sigma_param_group], {})
+
+        self._initialize_cov_info(sigma_init)
+
+    def _initialize_cov_info(self, sigma_init: float):
+        for n, p in self.named_params:
+            d = p.numel()
+            if len(p.shape) == 4:  # Conv2d parameters
+                # Split Conv2d parameters into output channels
+                out_channels = p.shape[0]
+                for i in range(out_channels):
+                    channel_params = p[i].flatten()
+                    channel_d = channel_params.numel()
+                    A = get_initial_A(channel_d, sigma_init, self.mu.device)
+                    self.cov_info[f"{n}_channel_{i}"] = A
+                    self.sigma_param_group["params"].append(A)
+            else:
+                # manage full cov variance for non-Conv2d parameters
+                A = get_initial_A(d, sigma_init, self.mu.device)
+                self.cov_info[n] = A
+                self.sigma_param_group["params"].append(A)
 
     def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         mutations = []
-        zs = []
+        normal_samples = []
 
         sample_size = self.popsize
         if self.use_antithetic_sampling:
@@ -287,137 +301,94 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
             sample_size = self.popsize // 2
 
         for n, p in self.named_params:
-            d = p.numel()
-            if self.use_bdnes:
-                if len(p.shape) == 4:  # Conv2d parameters
-                    out_channels = p.shape[0]
-                    for i in range(out_channels):
-                        channel_params = p[i].flatten()
-                        channel_d = channel_params.numel()
-                        z = torch.randn(
-                            sample_size,
-                            channel_d,
-                            device=self.mu.device,
-                        )
-                        A = self.cov_info[f"{n}_channel_{i}"]["A"]
-                        mutation = z @ A.T
-
-                        if self.use_antithetic_sampling:
-                            mutation = torch.concatenate([mutation, -mutation], dim=0)
-                            z = torch.concatenate([z, -z], dim=0)
-
-                        mutations.append(mutation)
-                        zs.append(z)
-                else:
-                    z = torch.randn(
-                        sample_size,
-                        d,
-                        device=self.mu.device,
-                    )
-                    A = self.cov_info[n]["A"]
-                    mutation = z @ A.T
+            if len(p.shape) == 4:  # Conv2d parameters
+                out_channels = p.shape[0]
+                for i in range(out_channels):
+                    A = self.cov_info[f"{n}_channel_{i}"]
+                    mutation, s = sample_from_A(sample_size, A, self.mu.device)
 
                     if self.use_antithetic_sampling:
                         mutation = torch.concatenate([mutation, -mutation], dim=0)
-                        z = torch.concatenate([z, -z], dim=0)
+                        s = torch.concatenate([s, -s], dim=0)
 
                     mutations.append(mutation)
-                    zs.append(z)
+                    normal_samples.append(s)
             else:
-                z = torch.randn(
-                    sample_size,
-                    d,
-                    device=self.mu.device,
-                )
-                mutation = self.cov_info[n]["sigma"] * z
+                A = self.cov_info[n]
+                mutation, s = sample_from_A(sample_size, A, self.mu.device)
+
                 if self.use_antithetic_sampling:
                     mutation = torch.concatenate([mutation, -mutation], dim=0)
-                    z = torch.concatenate([z, -z], dim=0)
+                    s = torch.concatenate([s, -s], dim=0)
 
                 mutations.append(mutation)
-                zs.append(z)
+                normal_samples.append(s)
 
         mutations = torch.concatenate(mutations, dim=1)
-        zs = torch.concatenate(zs, dim=1)
+        normal_samples = torch.concatenate(normal_samples, dim=1)
 
         # '+' operation broadcasts to (popsize, num_params)
         batched_mutated_flat_params = self.mu + mutations
 
-        return batched_mutated_flat_params, mutations, zs
+        return batched_mutated_flat_params, mutations, normal_samples
 
-    def step(
-        self, losses: torch.Tensor, mutations: torch.Tensor, zs: Optional[torch.Tensor] = None
-    ):
-        # losses of shape (popsize, )
-        # estimate gradients
+    def step(self, losses: torch.Tensor, mutations: torch.Tensor, normal_samples: torch.Tensor):
+        # losses are of shape (popsize, )
         if self.use_rank_transform:
             losses = losses.argsort().argsort() / (losses.shape[0] - 1) - 0.5
 
         # normalize losses
         normalized_losses = (losses - losses.mean()) / losses.std()
 
-        # mu gradient is the same for all variants
-        mu_grad = (mutations.T @ normalized_losses).flatten() / self.popsize
-        self.mu -= self.mu_param_group["lr"] * mu_grad
+        # delta gradient. Used to update mu later on
+        g_delta = (normalized_losses @ normal_samples).flatten() / self.popsize
 
         # update covariance parameters block by block
         current_idx = 0
-        if zs is None:
-            raise ValueError(
-                "zs must not be None when using block-diagonal/full covariance updates."
-            )
         for n, p in self.named_params:
             d = p.numel()
-            if self.use_bdnes:
-                if len(p.shape) == 4:  # Conv2d parameters
-                    out_channels = p.shape[0]
-                    for i in range(out_channels):
-                        channel_params = p[i].flatten()
-                        channel_d = channel_params.numel()
-                        z = zs[:, current_idx : current_idx + channel_d]
+            if len(p.shape) == 4:  # Conv2d parameters
+                out_channels = p.shape[0]
+                for i in range(out_channels):
+                    channel_params = p[i].flatten()
+                    channel_d = channel_params.numel()
+                    A = self.cov_info[f"{n}_channel_{i}"]
 
-                        g_Sigma = (
-                            torch.einsum("k,ki,kj->ij", normalized_losses, z, z) / self.popsize
-                        )
-                        # TODO should deduct identity, cause currently relying on losses to be normalized so that g_Sigma = g_M
+                    # update mu
+                    step_mu(
+                        self.mu[current_idx : current_idx + channel_d],
+                        g_delta[current_idx : current_idx + channel_d],
+                        A,
+                        self.mu_param_group["lr"],
+                    )
 
-                        A = self.cov_info[f"{n}_channel_{i}"]["A"]
-                        lr = self.sigma_param_group["lr"]
+                    # update A
+                    step_A(
+                        A,
+                        normalized_losses,
+                        normal_samples[:, current_idx : current_idx + channel_d],
+                        self.sigma_param_group["lr"],
+                    )
 
-                        # (2) Half‐step matrix exponential:
-                        exp_half = torch.linalg.matrix_exp(0.5 * lr * g_Sigma)  # shape: [d,d]
-
-                        # (3) Right‐multiply your current A:
-                        A = self.cov_info[f"{n}_channel_{i}"]["A"]
-                        A.data.copy_(A @ exp_half)
-
-                        current_idx += channel_d
-                else:
-                    z = zs[:, current_idx : current_idx + d]
-
-                    g_Sigma = torch.einsum("k,ki,kj->ij", normalized_losses, z, z) / self.popsize
-
-                    A = self.cov_info[n]["A"]
-                    lr = self.sigma_param_group["lr"]
-
-                    # (2) Half‐step matrix exponential:
-                    exp_half = torch.linalg.matrix_exp(0.5 * lr * g_Sigma)  # shape: [d,d]
-
-                    # (3) Right‐multiply your current A:
-                    A = self.cov_info[n]["A"]
-                    A.data.copy_(A @ exp_half)
-
-                    current_idx += d
+                    current_idx += channel_d
             else:
-                block_mutations = mutations[:, current_idx : current_idx + d]
-                sigma = self.cov_info[n]["sigma"]
-                z = block_mutations / sigma
-                sigma_grad = (((z**2) - 1).T @ normalized_losses).flatten() / self.popsize
-                # update sigma using exponential step; '-' because we want to go in opposite direction of gradient
-                self.cov_info[n]["sigma"] *= torch.exp(
-                    -(self.sigma_param_group["lr"] / 2) * sigma_grad
+                A = self.cov_info[n]
+
+                # update mu
+                step_mu(
+                    self.mu[current_idx : current_idx + d],
+                    g_delta[current_idx : current_idx + d],
+                    A,
+                    self.mu_param_group["lr"],
                 )
 
+                # update A
+                step_A(
+                    A,
+                    normalized_losses,
+                    normal_samples[:, current_idx : current_idx + d],
+                    self.sigma_param_group["lr"],
+                )
                 current_idx += d
 
         # load mu into original params
