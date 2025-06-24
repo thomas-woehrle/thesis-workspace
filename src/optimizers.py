@@ -216,34 +216,6 @@ class SNESOptimizer(EvolutionaryOptimizer):
         self.sigma_param_group["lr"] = state_dict["sigma_lr"]
 
 
-def get_initial_A(d: int, diag_init: float, device: torch.device):
-    A = torch.ones(d, d, device=device) * 1e-4
-    A.fill_diagonal_(diag_init)
-    return A
-
-
-def sample_from_A(sample_size: int, A: torch.Tensor, device: torch.device):
-    s = torch.randn(sample_size, A.shape[0], device=device)
-    mutation = s @ A
-    return mutation, s
-
-
-def step_mu(mu: torch.Tensor, g_delta: torch.Tensor, A: torch.Tensor, lr: float):
-    update = lr * g_delta @ A
-    mu.sub_(update)
-
-
-def step_A(A: torch.Tensor, losses: torch.Tensor, s: torch.Tensor, lr: float):
-    popsize = losses.shape[0]
-    # g_M is the gradient for the covariance matrix
-    g_M = torch.einsum("k,ki,kj->ij", losses, s, s)
-    g_M -= torch.sum(losses) * torch.eye(g_M.shape[0], device=g_M.device)
-    g_M /= popsize
-
-    matrix_exp = torch.matrix_exp(-0.5 * lr * g_M)
-    A.data.copy_(A @ matrix_exp)
-
-
 class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
     def __init__(
         self,
@@ -275,19 +247,28 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
 
     def _initialize_cov_info(self, sigma_init: float):
         for n, p in self.named_params:
-            d = p.numel()
             if len(p.shape) == 4:  # Conv2d parameters
-                # Split Conv2d parameters into output channels
-                out_channels = p.shape[0]
-                for i in range(out_channels):
-                    channel_params = p[i].flatten()
-                    channel_d = channel_params.numel()
-                    A = get_initial_A(channel_d, sigma_init, self.mu.device)
-                    self.cov_info[f"{n}_channel_{i}"] = A
-                    self.sigma_param_group["params"].append(A)
+                out_channels, in_channels, kh, kw = p.shape
+                channel_d = in_channels * kh * kw
+                # Create a batched A matrix
+                As = (
+                    torch.ones(
+                        out_channels,
+                        channel_d,
+                        channel_d,
+                        device=self.mu.device,
+                    )
+                    * 1e-3
+                )
+                # Set diagonal for all matrices in the batch
+                As[:, torch.arange(channel_d), torch.arange(channel_d)] = sigma_init
+                self.cov_info[n] = As
+                self.sigma_param_group["params"].append(As)
             else:
                 # manage full cov variance for non-Conv2d parameters
-                A = get_initial_A(d, sigma_init, self.mu.device)
+                d = p.numel()
+                A = torch.ones(d, d, device=self.mu.device) * 1e-4
+                A.fill_diagonal_(sigma_init)
                 self.cov_info[n] = A
                 self.sigma_param_group["params"].append(A)
 
@@ -301,31 +282,45 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
             sample_size = self.popsize // 2
 
         for n, p in self.named_params:
-            if len(p.shape) == 4:  # Conv2d parameters
-                out_channels = p.shape[0]
-                for i in range(out_channels):
-                    A = self.cov_info[f"{n}_channel_{i}"]
-                    mutation, s = sample_from_A(sample_size, A, self.mu.device)
+            if len(p.shape) == 4:  # Batched Conv2d parameters
+                As = self.cov_info[n]  # shape (out_channels, channel_d, channel_d)
+                num_blocks, d, _ = As.shape
 
-                    if self.use_antithetic_sampling:
-                        mutation = torch.concatenate([mutation, -mutation], dim=0)
-                        s = torch.concatenate([s, -s], dim=0)
+                # s shape: (sample_size, num_blocks, d)
+                s_b = torch.randn(sample_size, num_blocks, d, device=self.mu.device)
+                # bmm requires (b, n, m) @ (b, m, p)
+                # s_bmm needs to be (num_blocks, sample_size, d)
+                s_bmm = s_b.permute(1, 0, 2)
+                mutations_bmm = torch.bmm(s_bmm, As)
+                # mutations_b back to (sample_size, num_blocks, d)
+                mutations_b = mutations_bmm.permute(1, 0, 2)
 
-                    mutations.append(mutation)
-                    normal_samples.append(s)
-            else:
-                A = self.cov_info[n]
-                mutation, s = sample_from_A(sample_size, A, self.mu.device)
+                # flatten the block dimension for concatenation later
+                # .reshape() instead of .view() is necessary
+                # shape: (sample_size, num_blocks * d)
+                mutation = mutations_b.reshape(sample_size, -1)
+                s = s_b.reshape(sample_size, -1)
 
                 if self.use_antithetic_sampling:
-                    mutation = torch.concatenate([mutation, -mutation], dim=0)
-                    s = torch.concatenate([s, -s], dim=0)
+                    mutation = torch.cat([mutation, -mutation], dim=0)
+                    s = torch.cat([s, -s], dim=0)
+
+                mutations.append(mutation)
+                normal_samples.append(s)
+            else:  # Un-batched other parameters
+                A = self.cov_info[n]
+                s = torch.randn(sample_size, A.shape[0], device=self.mu.device)
+                mutation = s @ A
+
+                if self.use_antithetic_sampling:
+                    mutation = torch.cat([mutation, -mutation], dim=0)
+                    s = torch.cat([s, -s], dim=0)
 
                 mutations.append(mutation)
                 normal_samples.append(s)
 
-        mutations = torch.concatenate(mutations, dim=1)
-        normal_samples = torch.concatenate(normal_samples, dim=1)
+        mutations = torch.cat(mutations, dim=1)
+        normal_samples = torch.cat(normal_samples, dim=1)
 
         # '+' operation broadcasts to (popsize, num_params)
         batched_mutated_flat_params = self.mu + mutations
@@ -346,49 +341,58 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
         # update covariance parameters block by block
         current_idx = 0
         for n, p in self.named_params:
-            d = p.numel()
-            if len(p.shape) == 4:  # Conv2d parameters
-                out_channels = p.shape[0]
-                for i in range(out_channels):
-                    channel_params = p[i].flatten()
-                    channel_d = channel_params.numel()
-                    A = self.cov_info[f"{n}_channel_{i}"]
+            if len(p.shape) == 4:  # Batched Conv2d parameters
+                out_channels, in_channels, kh, kw = p.shape
+                channel_d = in_channels * kh * kw
+                num_params_in_block = out_channels * channel_d
 
-                    # update mu
-                    step_mu(
-                        self.mu[current_idx : current_idx + channel_d],
-                        g_delta[current_idx : current_idx + channel_d],
-                        A,
-                        self.mu_param_group["lr"],
-                    )
+                As = self.cov_info[n]  # (out_channels, channel_d, channel_d)
 
-                    # update A
-                    step_A(
-                        A,
-                        normalized_losses,
-                        normal_samples[:, current_idx : current_idx + channel_d],
-                        self.sigma_param_group["lr"],
-                    )
+                # --- mu update ---
+                mu_slice = self.mu[current_idx : current_idx + num_params_in_block]
+                g_delta_slice = g_delta[current_idx : current_idx + num_params_in_block]
+                g_delta_reshaped = g_delta_slice.view(out_channels, 1, channel_d)
 
-                    current_idx += channel_d
-            else:
+                update_b = torch.bmm(g_delta_reshaped, As)
+                update = self.mu_param_group["lr"] * update_b.flatten()
+                mu_slice.sub_(update)
+
+                # --- A update ---
+                s_slice = normal_samples[:, current_idx : current_idx + num_params_in_block]
+                s_reshaped = s_slice.view(self.popsize, out_channels, channel_d)
+                s_for_einsum = s_reshaped.permute(1, 0, 2)
+
+                g_M_b = torch.einsum(
+                    "k,bki,bkj->bij", normalized_losses, s_for_einsum, s_for_einsum
+                )
+                sum_losses = torch.sum(normalized_losses)
+                identities = torch.eye(channel_d, device=self.mu.device).expand_as(As)
+                g_M_b -= sum_losses * identities
+                g_M_b /= self.popsize
+
+                matrix_exp_b = torch.matrix_exp(-0.5 * self.sigma_param_group["lr"] * g_M_b)
+                As.copy_(torch.bmm(As, matrix_exp_b))
+
+                current_idx += num_params_in_block
+            else:  # Un-batched other parameters
+                d = p.numel()
                 A = self.cov_info[n]
 
-                # update mu
-                step_mu(
-                    self.mu[current_idx : current_idx + d],
-                    g_delta[current_idx : current_idx + d],
-                    A,
-                    self.mu_param_group["lr"],
-                )
+                # --- mu update ---
+                mu_slice = self.mu[current_idx : current_idx + d]
+                g_delta_slice = g_delta[current_idx : current_idx + d]
+                update = self.mu_param_group["lr"] * (g_delta_slice @ A)
+                mu_slice.sub_(update)
 
-                # update A
-                step_A(
-                    A,
-                    normalized_losses,
-                    normal_samples[:, current_idx : current_idx + d],
-                    self.sigma_param_group["lr"],
-                )
+                # --- A update ---
+                s_slice = normal_samples[:, current_idx : current_idx + d]
+                g_M = torch.einsum("k,ki,kj->ij", normalized_losses, s_slice, s_slice)
+                g_M -= torch.sum(normalized_losses) * torch.eye(d, device=self.mu.device)
+                g_M /= self.popsize
+
+                matrix_exp = torch.matrix_exp(-0.5 * self.sigma_param_group["lr"] * g_M)
+                A.copy_(A @ matrix_exp)
+
                 current_idx += d
 
         # load mu into original params

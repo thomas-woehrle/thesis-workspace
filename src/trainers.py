@@ -265,12 +265,23 @@ class EvolutionaryTrainer(Trainer):
             all_diag_elements = []
             all_off_diag_elements = []
             for A in self.optimizer.cov_info.values():
-                cov = A.T @ A
-                all_diag_elements.append(torch.diag(cov))
+                if A.dim() == 3:  # Batched A for Conv2d
+                    # cov = A_i.T @ A_i for each matrix in the batch
+                    cov = torch.bmm(A.transpose(-2, -1), A)
+                    diagonals = torch.diagonal(cov, dim1=-2, dim2=-1)
+                    all_diag_elements.append(diagonals.flatten())
 
-                # Get off-diagonal elements
-                off_diag_mask = ~torch.eye(cov.shape[0], dtype=torch.bool, device=cov.device)
-                all_off_diag_elements.append(cov[off_diag_mask])
+                    # Get off-diagonal elements
+                    off_diag_mask = ~torch.eye(cov.shape[-1], dtype=torch.bool, device=cov.device)
+                    off_diagonals = cov[:, off_diag_mask]
+                    all_off_diag_elements.append(off_diagonals.flatten())
+                else:  # 2D A for other layers
+                    cov = A.T @ A
+                    all_diag_elements.append(torch.diag(cov))
+
+                    # Get off-diagonal elements
+                    off_diag_mask = ~torch.eye(cov.shape[0], dtype=torch.bool, device=cov.device)
+                    all_off_diag_elements.append(cov[off_diag_mask])
 
             all_diag_elements = torch.cat(all_diag_elements)
             all_off_diag_elements = torch.cat(all_off_diag_elements)
