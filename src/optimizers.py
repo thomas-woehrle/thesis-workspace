@@ -222,6 +222,7 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
         named_params: Iterable[tuple[str, torch.Tensor]],
         lr: float,
         sigma_lr: float,
+        B_lr: float,
         popsize: int,
         sigma_init: float,
         use_antithetic_sampling: bool,
@@ -236,12 +237,16 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
 
         # this represents the distribution-based population
         self.mu = nn.utils.parameters_to_vector(self.original_unflattened_params).detach()
-        self.cov_info: dict[str, torch.Tensor] = {}
+        # B matrices
+        self.cov_shape_info: dict[str, torch.Tensor] = {}
+        # sigma scalars
+        self.cov_scale_info: dict[str, torch.Tensor] = {}
 
         # create param groups to enable lr scheduling
         self.mu_param_group = {"params": self.mu, "lr": lr}
         self.sigma_param_group = {"params": [], "lr": sigma_lr}
-        super().__init__([self.mu_param_group, self.sigma_param_group], {})
+        self.B_param_group = {"params": [], "lr": B_lr}
+        super().__init__([self.mu_param_group, self.sigma_param_group, self.B_param_group], {})
 
         self._initialize_cov_info(sigma_init)
 
@@ -250,27 +255,31 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
             if len(p.shape) == 4:  # Conv2d parameters
                 out_channels, in_channels, kh, kw = p.shape
                 channel_d = in_channels * kh * kw
-                # Create a batched A matrix
-                As = (
-                    torch.ones(
-                        out_channels,
-                        channel_d,
-                        channel_d,
-                        device=self.mu.device,
-                    )
-                    * 1e-3
+
+                # Directly initialize sigma and B for stability
+                sigmas = torch.ones(out_channels, device=self.mu.device) * sigma_init
+                Bs = (
+                    torch.eye(channel_d, device=self.mu.device)
+                    .expand(out_channels, channel_d, channel_d)
+                    .clone()
                 )
-                # Set diagonal for all matrices in the batch
-                As[:, torch.arange(channel_d), torch.arange(channel_d)] = sigma_init
-                self.cov_info[n] = As
-                self.sigma_param_group["params"].append(As)
+
+                self.cov_scale_info[n] = sigmas
+                self.cov_shape_info[n] = Bs
+                self.sigma_param_group["params"].append(sigmas)
+                self.B_param_group["params"].append(Bs)
             else:
                 # manage full cov variance for non-Conv2d parameters
                 d = p.numel()
-                A = torch.ones(d, d, device=self.mu.device) * 1e-4
-                A.fill_diagonal_(sigma_init)
-                self.cov_info[n] = A
-                self.sigma_param_group["params"].append(A)
+
+                # Directly initialize sigma and B for stability
+                sigma = torch.tensor(sigma_init, device=self.mu.device)
+                B = torch.eye(d, device=self.mu.device)
+
+                self.cov_scale_info[n] = sigma
+                self.cov_shape_info[n] = B
+                self.sigma_param_group["params"].append(sigma)
+                self.B_param_group["params"].append(B)
 
     def get_new_generation(self) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         mutations = []
@@ -283,20 +292,22 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
 
         for n, p in self.named_params:
             if len(p.shape) == 4:  # Batched Conv2d parameters
-                As = self.cov_info[n]  # shape (out_channels, channel_d, channel_d)
-                num_blocks, d, _ = As.shape
+                Bs = self.cov_shape_info[n]  # shape (out_channels, channel_d, channel_d)
+                sigmas = self.cov_scale_info[n]  # shape (out_channels,)
+                num_blocks, d, _ = Bs.shape
 
-                # s shape: (sample_size, num_blocks, d)
+                # s_b shape: (sample_size, num_blocks, d)
                 s_b = torch.randn(sample_size, num_blocks, d, device=self.mu.device)
-                # bmm requires (b, n, m) @ (b, m, p)
-                # s_bmm needs to be (num_blocks, sample_size, d)
+                # bmm requires (b, n, m) @ (b, m, p), so we permute
+                # s_bmm shape: (num_blocks, sample_size, d)
                 s_bmm = s_b.permute(1, 0, 2)
-                mutations_bmm = torch.bmm(s_bmm, As)
-                # mutations_b back to (sample_size, num_blocks, d)
+                mutations_bmm = torch.bmm(s_bmm, Bs)
+                # mutations_b back to shape (sample_size, num_blocks, d)
                 mutations_b = mutations_bmm.permute(1, 0, 2)
+                # apply sigma scale, sigmas broadcasts to match shape
+                mutations_b *= sigmas.view(1, -1, 1)
 
                 # flatten the block dimension for concatenation later
-                # .reshape() instead of .view() is necessary
                 # shape: (sample_size, num_blocks * d)
                 mutation = mutations_b.reshape(sample_size, -1)
                 s = s_b.reshape(sample_size, -1)
@@ -308,9 +319,10 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                 mutations.append(mutation)
                 normal_samples.append(s)
             else:  # Un-batched other parameters
-                A = self.cov_info[n]
-                s = torch.randn(sample_size, A.shape[0], device=self.mu.device)
-                mutation = s @ A
+                B = self.cov_shape_info[n]
+                sigma = self.cov_scale_info[n]
+                s = torch.randn(sample_size, B.shape[0], device=self.mu.device)
+                mutation = sigma * (s @ B)
 
                 if self.use_antithetic_sampling:
                     mutation = torch.cat([mutation, -mutation], dim=0)
@@ -346,52 +358,80 @@ class BlockDiagonalNESOptimizer(EvolutionaryOptimizer):
                 channel_d = in_channels * kh * kw
                 num_params_in_block = out_channels * channel_d
 
-                As = self.cov_info[n]  # (out_channels, channel_d, channel_d)
+                Bs = self.cov_shape_info[n]  # shape (out_channels, channel_d, channel_d)
+                sigmas = self.cov_scale_info[n]  # shape (out_channels,)
 
                 # --- mu update ---
                 mu_slice = self.mu[current_idx : current_idx + num_params_in_block]
                 g_delta_slice = g_delta[current_idx : current_idx + num_params_in_block]
+                # g_delta_reshaped shape: (out_channels, 1, channel_d)
                 g_delta_reshaped = g_delta_slice.view(out_channels, 1, channel_d)
 
-                update_b = torch.bmm(g_delta_reshaped, As)
+                update_b = torch.bmm(g_delta_reshaped, Bs)
+                # apply sigma scale, sigmas broadcasts to match shape
+                update_b *= sigmas.view(-1, 1, 1)
                 update = self.mu_param_group["lr"] * update_b.flatten()
                 mu_slice.sub_(update)
 
-                # --- A update ---
+                # --- sigma and B update ---
                 s_slice = normal_samples[:, current_idx : current_idx + num_params_in_block]
+                # s_reshaped shape: (popsize, out_channels, channel_d)
                 s_reshaped = s_slice.view(self.popsize, out_channels, channel_d)
+                # s_for_einsum shape: (out_channels, popsize, channel_d) for einsum
                 s_for_einsum = s_reshaped.permute(1, 0, 2)
 
+                # g_M_b shape: (out_channels, channel_d, channel_d)
                 g_M_b = torch.einsum(
                     "k,bki,bkj->bij", normalized_losses, s_for_einsum, s_for_einsum
                 )
-                sum_losses = torch.sum(normalized_losses)
-                identities = torch.eye(channel_d, device=self.mu.device).expand_as(As)
-                g_M_b -= sum_losses * identities
+                g_M_b -= torch.sum(normalized_losses) * torch.eye(
+                    channel_d, device=self.mu.device
+                ).expand_as(Bs)
                 g_M_b /= self.popsize
 
-                matrix_exp_b = torch.matrix_exp(-0.5 * self.sigma_param_group["lr"] * g_M_b)
-                As.copy_(torch.bmm(As, matrix_exp_b))
+                # Decompose g_M into g_sigma and g_B
+                # g_sigma_b shape: (out_channels,)
+                g_sigma_b = torch.diagonal(g_M_b, dim1=-2, dim2=-1).sum(dim=-1) / channel_d
+                # g_B_b shape: (out_channels, channel_d, channel_d)
+                g_B_b = g_M_b - g_sigma_b.view(-1, 1, 1) * torch.eye(
+                    channel_d, device=self.mu.device
+                ).expand_as(Bs)
+
+                # Update sigma
+                sigmas *= torch.exp(-(self.sigma_param_group["lr"] / 2) * g_sigma_b)
+
+                # Update B
+                matrix_exp_b = torch.matrix_exp(-(self.B_param_group["lr"] / 2) * g_B_b)
+                Bs.copy_(torch.bmm(Bs, matrix_exp_b))
 
                 current_idx += num_params_in_block
             else:  # Un-batched other parameters
                 d = p.numel()
-                A = self.cov_info[n]
+                B = self.cov_shape_info[n]
+                sigma = self.cov_scale_info[n]
 
                 # --- mu update ---
                 mu_slice = self.mu[current_idx : current_idx + d]
                 g_delta_slice = g_delta[current_idx : current_idx + d]
-                update = self.mu_param_group["lr"] * (g_delta_slice @ A)
+                update = self.mu_param_group["lr"] * sigma * (g_delta_slice @ B)
                 mu_slice.sub_(update)
 
-                # --- A update ---
+                # --- sigma and B update ---
                 s_slice = normal_samples[:, current_idx : current_idx + d]
                 g_M = torch.einsum("k,ki,kj->ij", normalized_losses, s_slice, s_slice)
                 g_M -= torch.sum(normalized_losses) * torch.eye(d, device=self.mu.device)
                 g_M /= self.popsize
 
-                matrix_exp = torch.matrix_exp(-0.5 * self.sigma_param_group["lr"] * g_M)
-                A.copy_(A @ matrix_exp)
+                # Decompose g_M into g_sigma and g_B
+                g_sigma = torch.trace(g_M) / d
+                g_B = g_M - g_sigma * torch.eye(d, device=self.mu.device)
+
+                # Update sigma
+                sigma *= torch.exp(-(self.sigma_param_group["lr"] / 2) * g_sigma)
+
+                # Update B
+                matrix_exp = torch.matrix_exp(-(self.B_param_group["lr"] / 2) * g_B)
+                B.copy_(B @ matrix_exp)
 
                 current_idx += d
 

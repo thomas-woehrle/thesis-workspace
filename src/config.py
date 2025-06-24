@@ -224,6 +224,7 @@ class OptimizerConfig:
     IS_EVOLUTIONARY: bool
     LR: float
     SIGMA_LR: Optional[float] = None
+    B_LR: Optional[float] = None
     # TODO remove this eventually. Only here to support legacy oes optimizer
     NES_INNER_OPTIMIZER_SLUG: Optional[str] = None
     WEIGHT_DECAY: float = 0.0
@@ -245,6 +246,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             assert config.NES_INNER_OPTIMIZER_SLUG is not None
             assert config.USE_ANTITHETIC_SAMPLING is not None
             assert config.USE_RANK_TRANSFORM is not None
+            assert config.B_LR is None
 
             return optimizers.OpenAIEvolutionaryOptimizer(
                 model.parameters(),
@@ -263,6 +265,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             assert config.USE_ANTITHETIC_SAMPLING is not None
             assert config.USE_RANK_TRANSFORM is not None
             assert config.SIGMA_LR is not None
+            assert config.B_LR is None
             assert config.NES_INNER_OPTIMIZER_SLUG is None, (
                 "Inner Optimizer not supported with SNES"
             )
@@ -291,6 +294,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
             assert config.USE_ANTITHETIC_SAMPLING is not None
             assert config.USE_RANK_TRANSFORM is not None
             assert config.SIGMA_LR is not None
+            assert config.B_LR is not None
             assert config.NES_INNER_OPTIMIZER_SLUG is None, (
                 "Inner Optimizer not supported with SNES"
             )
@@ -304,6 +308,7 @@ def get_optimizer(config: OptimizerConfig, model: nn.Module) -> optim.Optimizer:
                 sigma_init=config.SIGMA_INIT,
                 lr=config.LR,
                 sigma_lr=config.SIGMA_LR,
+                B_lr=config.B_LR,
                 use_antithetic_sampling=config.USE_ANTITHETIC_SAMPLING,
                 use_rank_transform=config.USE_RANK_TRANSFORM,
             )

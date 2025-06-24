@@ -264,8 +264,12 @@ class EvolutionaryTrainer(Trainer):
         else:
             all_diag_elements = []
             all_off_diag_elements = []
-            for A in self.optimizer.cov_info.values():
-                if A.dim() == 3:  # Batched A for Conv2d
+
+            for name, B in self.optimizer.cov_shape_info.items():
+                sigma = self.optimizer.cov_scale_info[name]
+
+                if B.dim() == 3:  # Batched A for Conv2d
+                    A = sigma.view(-1, 1, 1) * B
                     # cov = A_i.T @ A_i for each matrix in the batch
                     cov = torch.bmm(A.transpose(-2, -1), A)
                     diagonals = torch.diagonal(cov, dim1=-2, dim2=-1)
@@ -276,6 +280,7 @@ class EvolutionaryTrainer(Trainer):
                     off_diagonals = cov[:, off_diag_mask]
                     all_off_diag_elements.append(off_diagonals.flatten())
                 else:  # 2D A for other layers
+                    A = sigma * B
                     cov = A.T @ A
                     all_diag_elements.append(torch.diag(cov))
 
